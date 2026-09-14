@@ -1,0 +1,293 @@
+# =============================================================================
+# General
+# =============================================================================
+
+onboarding = false
+
+# =============================================================================
+# Server
+# =============================================================================
+
+[server]
+headless_cols = 120
+headless_rows = 40
+
+# =============================================================================
+# Theme
+# =============================================================================
+
+[theme]
+name = "terminal"
+auto_switch = false
+
+# =============================================================================
+# Terminal
+# =============================================================================
+
+[terminal]
+default_shell = ""
+shell_mode = "auto"
+new_cwd = "follow"
+
+# =============================================================================
+# Updates
+# =============================================================================
+
+[update]
+channel = "stable"
+version_check = true
+manifest_check = true
+
+# =============================================================================
+# UI
+# =============================================================================
+
+[ui]
+sidebar_width = 26
+sidebar_min_width = 18
+sidebar_max_width = 36
+
+sidebar_start_collapsed = false
+sidebar_collapsed_mode = "compact"
+
+mobile_width_threshold = 64
+
+mouse_capture = true
+copy_on_select = true
+host_cursor = "auto"
+right_click_passthrough_modifier = ""
+redraw_on_focus_gained = true
+mouse_scroll_lines = 3
+
+confirm_close = true
+prompt_new_tab_name = false
+prompt_new_workspace_name = false
+
+pane_borders = true
+pane_outer_borders = true
+pane_scrollbars = true
+pane_gaps = true
+
+show_agent_labels_on_pane_borders = true
+
+hide_tab_bar_when_single_tab = false
+tab_bar_position = "top"
+tab_bar_right = []
+tab_bar_right_separator = " "
+
+window_title = "{hostname}: {workspace}"
+
+agent_panel_sort = "spaces"
+
+status_indicators = "dots"
+accent = "#6BFF6B"
+
+# =============================================================================
+# Sidebar
+# =============================================================================
+
+[ui.sidebar.agents]
+row_gap = 0
+rows = [["state_icon", "workspace", "tab"], [{ token = "agent", dim = false }]]
+rows_by_agent = {}
+
+[ui.sidebar.spaces]
+row_gap = 0
+rows = [["state_icon", "workspace"], ["branch", "git_status"]]
+
+# =============================================================================
+# Notifications
+# =============================================================================
+
+[ui.toast]
+delivery = "herdr"
+
+delay_seconds = 1
+
+[ui.toast.herdr]
+position = "bottom-right"
+
+[ui.toast.clipboard]
+enabled = true
+position = "bottom-center"
+
+# =============================================================================
+# Sound
+# =============================================================================
+
+[ui.sound]
+enabled = true
+
+[ui.sound.agents]
+pi = "default"
+claude = "default"
+codex = "default"
+gemini = "default"
+cursor = "default"
+devin = "default"
+agy = "default"
+cline = "default"
+open_code = "default"
+github_copilot = "default"
+kimi = "default"
+kiro = "default"
+droid = "off"
+amp = "default"
+grok = "default"
+hermes = "default"
+kilo = "default"
+qodercli = "default"
+qwen = "default"
+maki = "default"
+
+# =============================================================================
+# Keybindings
+# =============================================================================
+
+[keys]
+prefix = "ctrl+b"
+
+# -----------------------------------------------------------------------------
+# Help / Settings
+# -----------------------------------------------------------------------------
+
+help = "prefix+?"
+settings = "prefix+s"
+
+# -----------------------------------------------------------------------------
+# Session
+# -----------------------------------------------------------------------------
+
+detach = "prefix+q"
+reload_config = "prefix+shift+r"
+open_notification_target = "prefix+o"
+
+# -----------------------------------------------------------------------------
+# Workspace
+# -----------------------------------------------------------------------------
+
+new_workspace = "prefix+shift+n"
+new_worktree = "prefix+shift+g"
+rename_workspace = "prefix+shift+w"
+close_workspace = "prefix+shift+d"
+
+# Windows Terminal:
+#
+# Ctrl+Tab
+#   -> Ctrl+B + Right
+#
+# Ctrl+Shift+Tab
+#   -> Ctrl+B + Left
+#
+previous_workspace = "prefix+left"
+next_workspace = "prefix+right"
+
+workspace_picker = "prefix+w"
+goto = "prefix+g"
+
+# -----------------------------------------------------------------------------
+# Navigate mode
+# -----------------------------------------------------------------------------
+
+navigate_workspace_up = "up"
+navigate_workspace_down = "down"
+
+navigate_pane_left = "h"
+navigate_pane_down = "j"
+navigate_pane_up = "k"
+navigate_pane_right = "l"
+
+# -----------------------------------------------------------------------------
+# Remote
+# -----------------------------------------------------------------------------
+
+remote_image_paste = "ctrl+v"
+
+# -----------------------------------------------------------------------------
+# Tab
+# -----------------------------------------------------------------------------
+
+new_tab = "prefix+c"
+rename_tab = "prefix+shift+t"
+
+previous_tab = "prefix+p"
+next_tab = "prefix+n"
+
+switch_tab = "prefix+1..9"
+switch_workspace = "prefix+alt+1..9"
+
+close_tab = "prefix+shift+x"
+
+# -----------------------------------------------------------------------------
+# Pane
+# -----------------------------------------------------------------------------
+
+rename_pane = "prefix+shift+p"
+edit_scrollback = "prefix+e"
+copy_mode = "prefix+["
+
+focus_pane_left = "prefix+h"
+focus_pane_down = "prefix+j"
+focus_pane_up = "prefix+k"
+focus_pane_right = "prefix+l"
+
+swap_pane_left = "prefix+shift+h"
+swap_pane_down = "prefix+shift+j"
+swap_pane_up = "prefix+shift+k"
+swap_pane_right = "prefix+shift+l"
+
+cycle_pane_next = "prefix+tab"
+cycle_pane_previous = "prefix+shift+tab"
+
+split_vertical = "prefix+v"
+split_horizontal = "prefix+minus"
+
+close_pane = "prefix+x"
+zoom = "prefix+z"
+
+resize_mode = "prefix+r"
+
+toggle_sidebar = "prefix+b"
+
+# =============================================================================
+# Session
+# =============================================================================
+
+[session]
+resume_agents_on_restore = true
+
+# =============================================================================
+# Worktrees
+# =============================================================================
+
+[worktrees]
+directory = "~/.herdr/worktrees"
+
+# =============================================================================
+# Remote
+# =============================================================================
+
+[remote]
+manage_ssh_config = true
+
+# =============================================================================
+# Advanced
+# =============================================================================
+
+[advanced]
+scrollback_limit_bytes = 10000000
+
+# =============================================================================
+# Experimental
+# =============================================================================
+
+[experimental]
+allow_nested = false
+kitty_graphics = true
+pane_history = false
+
+reveal_hidden_cursor_for_cjk_ime = true
+cjk_ime_agents = []
+cjk_ime_cursor_shape = "steady_block"
+
+switch_ascii_input_source_in_prefix = true

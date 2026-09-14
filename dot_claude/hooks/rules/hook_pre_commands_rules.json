@@ -1,0 +1,55 @@
+{
+    "blocked_commands": [
+        {
+            "pattern": "^rm\\s+-rf\\s+/",
+            "error_message": "ルートディレクトリの削除は危険です。操作を停止します。"
+        },
+        {
+            "pattern": "^sudo\\s+rm",
+            "error_message": "sudoでのファイル削除は危険です。操作を停止します。"
+        },
+        {
+            "pattern": "^chmod\\s+777",
+            "error_message": "777権限の設定はセキュリティリスクです。操作を停止します。"
+        },
+        {
+            "pattern": "^curl.*\\|\\s*sh",
+            "error_message": "不明なスクリプトの実行は危険です。操作を停止します。"
+        },
+        {
+            "pattern": "^wget.*\\|\\s*sh",
+            "error_message": "不明なスクリプトの実行は危険です。操作を停止します。"
+        }
+    ],
+    "allowed_commands": [
+        "pnpm",
+        "npm",
+        "yarn",
+        "dotnet",
+        "git",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "rg",
+        "find",
+        "mkdir",
+        "cp",
+        "mv",
+        "echo",
+        "cd"
+    ],
+    "project_specific_rules": [
+        {
+            "pattern": "generate",
+            "require_confirmation": false,
+            "description": "TypeSpecコード生成コマンド"
+        },
+        {
+            "pattern": "db:migration",
+            "require_confirmation": true,
+            "description": "データベースマイグレーション関連コマンド"
+        }
+    ]
+}

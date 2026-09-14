@@ -1,0 +1,19 @@
+{
+  "sortToTop": [
+    "name",
+    "version",
+    "private",
+    "scripts",
+    "devDependencies",
+    "packageManager",
+    "engines",
+    "pnpm"
+  ],
+  "sortedSubItems": [
+    "scripts",
+    "devDependencies",
+    "dependencies",
+    "pnpm.overrides"
+  ]
+}
+

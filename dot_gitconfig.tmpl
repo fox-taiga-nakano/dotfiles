@@ -1,0 +1,31 @@
+[core]
+	autocrlf = input
+	editor = vim
+	pager = delta --side-by-side
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	dark = true
+	side-by-side = true
+	line-numbers = true
+[diff]
+	colorMoved = default
+[user]
+	email = {{ .git.email }}
+	name = {{ .git.name }}
+[pull]
+	rebase = false
+[credential "https://github.com"]
+	helper =
+	helper = !/home/linuxbrew/.linuxbrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/home/linuxbrew/.linuxbrew/bin/gh auth git-credential
+[init]
+	defaultbranch = main
+[pager]
+	diff = delta
+	log = delta
+	reflog = delta
+	show = delta

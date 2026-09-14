@@ -1,0 +1,21 @@
+[tools]
+bun = "latest"
+node = "latest"
+"npm:npkill" = "latest"
+"npm:takt" = "latest"
+pnpm = "latest"
+"npm:@github/copilot" = "latest"
+"npm:@googleworkspace/cli" = "latest"
+"npm:@playwright/cli" = "0.1.18"
+actionlint = "latest"
+herdr = "latest"
+"aqua:fullstorydev/grpcurl" = "latest"
+"npm:druk" = "latest"
+chezmoi = "latest"
+hunk = "latest"
+
+[settings]
+idiomatic_version_file_enable_tools = ["node"]
+
+[settings.npm]
+package_manager = "pnpm"
