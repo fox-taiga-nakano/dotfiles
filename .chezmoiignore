@@ -1,0 +1,4 @@
+# Runtime files generated inside exact externals; keep them from being removed.
+.oh-my-zsh/cache
+.oh-my-zsh/log
+.oh-my-zsh/**/*.zwc
