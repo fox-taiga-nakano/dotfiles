@@ -1,0 +1,24 @@
+# Packages installed by .chezmoiscripts/run_onchange_after_10-brew-bundle.sh.tmpl.
+# Grouped by OS (keys match .chezmoi.os: common, darwin, linux, windows),
+# then by package manager. Editing this file re-runs the matching install
+# script on the next `chezmoi apply`.
+packages:
+  common:
+    brew:
+      formulae:
+        - act
+        - bat
+        - eza
+        - gh
+        - git-delta
+        - jq
+        - lazygit
+        - mise
+        - sqlite
+        - uv
+      casks:
+        - codex
+  linux:
+    brew:
+      formulae:
+        - bubblewrap

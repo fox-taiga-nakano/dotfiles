@@ -1,0 +1,33 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/bin/bash
+# Install packages listed in .chezmoidata/packages.yaml.
+# The rendered Brewfile below is part of this script, so chezmoi re-runs it
+# whenever the package list changes.
+set -euo pipefail
+
+if ! command -v brew >/dev/null 2>&1; then
+  for prefix in /home/linuxbrew/.linuxbrew /opt/homebrew /usr/local; do
+    if [ -x "$prefix/bin/brew" ]; then
+      eval "$("$prefix/bin/brew" shellenv)"
+      break
+    fi
+  done
+fi
+if ! command -v brew >/dev/null 2>&1; then
+  echo "brew-bundle: Homebrew is not installed; install it and run chezmoi apply again" >&2
+  exit 1
+fi
+
+brew bundle --no-upgrade --file=- <<'BREWFILE'
+{{ range $group := list "common" .chezmoi.os -}}
+{{ range dig $group "brew" "formulae" list $.packages -}}
+brew {{ . | quote }}
+{{ end -}}
+{{ end -}}
+{{ range $group := list "common" .chezmoi.os -}}
+{{ range dig $group "brew" "casks" list $.packages -}}
+cask {{ . | quote }}
+{{ end -}}
+{{ end -}}
+BREWFILE
+{{ end -}}

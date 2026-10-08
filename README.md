@@ -11,16 +11,16 @@ WSL 上の開発環境を chezmoi で管理する dotfiles リポジトリです
 
 WSL と Linuxbrew（`/home/linuxbrew/.linuxbrew`）を前提にした個人の設定です。ほかの環境に導入する場合は、セットアップ前にパスやエイリアスを調整してください。
 
-あらかじめ Git、Zsh、chezmoi、Linuxbrew、mise、delta をインストールし、コマンドを利用できる状態にします。用途に応じて次のツールも用意してください。
+あらかじめ Git、Zsh、chezmoi、Linuxbrew、delta（`chezmoi diff` のページャー）をインストールし、コマンドを利用できる状態にします。mise、bat、eza、GitHub CLI、jq などの CLI は、`chezmoi apply` のときに Homebrew でインストールされます（[Homebrew パッケージ](#homebrew-パッケージ)を参照）。
 
-| ツール            | 用途                                    |
-| ----------------- | --------------------------------------- |
-| bat / eza         | `cat` / `ls` のエイリアス               |
-| GitHub CLI (`gh`) | Git の GitHub 認証ヘルパー              |
-| Nerd Font         | プロンプトや一覧表示のアイコン          |
-| Python 3 / jq     | Claude Code のステータスライン / フック |
+ほかに次のものを用意してください。
 
-Linuxbrew やこれらの依存ツールをインストールするスクリプトは含まれていません。外部依存の取得にはネットワーク接続が必要です。
+| ツール    | 用途                           |
+| --------- | ------------------------------ |
+| Nerd Font | プロンプトや一覧表示のアイコン |
+| Python 3  | Claude Code のステータスライン |
+
+Linuxbrew 自体をインストールするスクリプトは含まれていません。外部依存の取得にはネットワーク接続が必要です。
 
 ## セットアップ
 
@@ -44,6 +44,7 @@ chezmoi cd
 - [エイリアス](dot_zsh.d/30-alias.zsh): Windows 連携、個人環境のパス、プロジェクト用コマンド
 - [Git 設定](dot_gitconfig.tmpl): エディターと GitHub CLI のパス
 - [mise 設定](dot_config/mise/config.toml): インストールするランタイム・CLI
+- [パッケージ一覧](.chezmoidata/packages.yaml): Homebrew でインストールするパッケージ
 
 ### 3. 差分を確認して適用
 
@@ -56,7 +57,7 @@ mise install
 exec zsh
 ```
 
-`chezmoi apply` は設定の配置と Oh My Zsh・プラグイン・テーマの取得を行います。`mise install` は mise 設定に記載されたツールをインストールします。
+`chezmoi apply` は設定の配置、Oh My Zsh・プラグイン・テーマの取得、Homebrew パッケージのインストールを行います。`mise install` は mise 設定に記載されたツールをインストールします。
 
 ## 設定ファイル
 
@@ -74,6 +75,7 @@ exec zsh
 | `dot_config/druk/`            | `~/.config/druk/`            | エディターの設定                              |
 | `dot_claude/`                 | `~/.claude/`                 | ステータスライン、フック、出力スタイル        |
 | `dot_fixpackrc`               | `~/.fixpackrc`               | package.json の整形設定                       |
+| `.chezmoidata/packages.yaml`  | （配置なし）                 | Homebrew でインストールするパッケージ         |
 
 chezmoi の命名規則に従い、`dot_` はドットファイル、`.tmpl` はテンプレート、`executable_` は実行可能ファイルを表します。
 
@@ -89,6 +91,26 @@ chezmoi の命名規則に従い、`dot_` はドットファイル、`.tmpl` は
 ### Claude Code
 
 フックやステータスラインは、配置後に Claude Code の `~/.claude/settings.json` で登録してください。このファイルはリポジトリの管理対象に含まれていません。フックのルールは `dot_claude/hooks/rules/` で調整できます。
+
+### Homebrew パッケージ
+
+Homebrew でインストールするパッケージは [.chezmoidata/packages.yaml](.chezmoidata/packages.yaml) で管理しています。
+
+OS（`common`・`darwin`・`linux`・`windows`）、パッケージマネージャーの順に分けて定義します。OS のキーは chezmoi の `.chezmoi.os` の値に対応し、`common` はすべての OS で使います。
+
+| キー                    | 内容                       |
+| ----------------------- | -------------------------- |
+| `common.brew.formulae`  | すべての OS で入れる formula |
+| `common.brew.casks`     | すべての OS で入れる cask    |
+| `<os>.brew.formulae`    | その OS だけで入れる formula |
+| `<os>.brew.casks`       | その OS だけで入れる cask    |
+
+[run_onchange_after_10-brew-bundle.sh.tmpl](.chezmoiscripts/run_onchange_after_10-brew-bundle.sh.tmpl) がこの一覧から Brewfile を組み立て、`brew bundle` を実行します。一覧を変更したときだけ、次の `chezmoi apply` で実行されます。
+
+- パッケージを追加する: `packages.yaml` に追記して `chezmoi apply`
+- 一覧から削除しても、パッケージはアンインストールされません。必要に応じて `brew uninstall` を実行してください
+- インストール済みのパッケージは `--no-upgrade` によりアップグレードされません。更新は `brew upgrade` で行います
+- スクリプトだけを実行する場合は `chezmoi apply --include scripts` を使います
 
 ## 設定の編集
 
