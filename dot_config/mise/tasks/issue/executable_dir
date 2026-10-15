@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Issue のディレクトリ (<ISSUE_DIR>/<並び順>-<状態>_<番号>) の絶対パスを表示する (--create で無ければ「未着手」で作る)"
+#MISE dir="{{cwd}}"
+#USAGE arg "<number>" help="GitHub の Issue 番号"
+#USAGE flag "--create" help="無ければ「未着手」で作る"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/issue.sh"
+issue_load
+if [ -n "${usage_create:-}" ]; then
+  issue_dir_ensure "$usage_number"
+else
+  rc=0; issue_dir "$usage_number" || rc=$?
+  [ "$rc" -ne 1 ] || issue_die "Issue #$usage_number のディレクトリがありません (--create で作成)"
+  exit "$rc"
+fi

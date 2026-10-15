@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE description="Issue を取得して JSON で表示し、書き直す前の本文を <Issue のディレクトリ>/issue.orig.md に保存する (既にあれば上書きしない)"
+#MISE dir="{{cwd}}"
+#USAGE arg "<number>" help="GitHub の Issue 番号"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/issue.sh"
+issue_load
+n="$usage_number"
+dir="$(issue_dir_ensure "$n")"
+if [ -e "$dir/issue.orig.md" ]; then
+  echo "原本は保存済み (上書きしない): $dir/issue.orig.md" >&2
+else
+  gh issue view "$n" --json body --jq .body > "$dir/issue.orig.md"
+  echo "原本を保存: $dir/issue.orig.md" >&2
+fi
+gh issue view "$n" --json number,title,body,labels,milestone,comments,url

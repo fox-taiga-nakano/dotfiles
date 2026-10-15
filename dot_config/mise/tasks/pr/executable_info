@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#MISE description="PR の番号・ブランチ・base・対象 Issue・変更規模・追加マイグレーションをまとめて表示する (--issue で Issue 番号から PR を探す)"
+#MISE dir="{{cwd}}"
+#USAGE arg "<target>" help="PR 番号かブランチ名。--issue 指定時は Issue 番号"
+#USAGE flag "--issue" help="target を Issue 番号として、その Issue を閉じる open な PR を探す"
+# 追加マイグレーションは、リポジトリの mise の [env] の PR_MIGRATIONS (リポジトリのルートからの相対パス) の下に追加されたディレクトリ
+set -euo pipefail
+die() { echo "$*" >&2; exit 1; }
+t="$usage_target"
+if [ -n "${usage_issue:-}" ]; then
+  prs="$(gh pr list --state open --limit 200 --json number,closingIssuesReferences \
+    | jq -r --argjson n "$t" '.[] | select([.closingIssuesReferences[].number] | index($n)) | .number')"
+  [ -n "$prs" ] || die "Issue #$t を閉じる open な PR が見つかりません"
+  [ "$(wc -l <<<"$prs")" -eq 1 ] || die "Issue #$t を閉じる PR が複数あります: $(tr '\n' ' ' <<<"$prs")"
+  t="$prs"
+fi
+info="$(gh pr view "$t" --json number,title,state,headRefName,baseRefName,url,body,closingIssuesReferences)"
+pr="$(jq -r .number <<<"$info")"
+branch="$(jq -r .headRefName <<<"$info")"
+base="$(jq -r .baseRefName <<<"$info")"
+# closingIssuesReferences が空なら本文の Fixes #xxxx から取る
+issue="$(jq -r '[.closingIssuesReferences[].number] | map(tostring) | join(",")' <<<"$info")"
+[ -n "$issue" ] || issue="$(jq -r .body <<<"$info" | grep -oiE '(fix(es|ed)?|close[sd]?|resolve[sd]?) #[0-9]+' | grep -oE '[0-9]+' | sort -u | paste -sd, -)"
+git fetch -q origin "$branch" "$base"
+range="origin/$base...origin/$branch"
+migrations=""
+[ -z "${PR_MIGRATIONS:-}" ] || migrations="$(git diff --name-only --diff-filter=A "$range" -- ":(top)$PR_MIGRATIONS" | xargs -r -n1 dirname | xargs -r -n1 basename | sort -u | paste -sd, -)"
+echo "PR #$pr $(jq -r .title <<<"$info") [$(jq -r .state <<<"$info")]"
+echo "URL: $(jq -r .url <<<"$info")"
+echo "ブランチ: $branch → $base"
+echo "Issue: ${issue:-不明 (本文に Fixes #xxxx がない)}"
+echo "変更: $(git diff --shortstat "$range" | sed 's/^ *//')"
+[ -z "${PR_MIGRATIONS:-}" ] || echo "追加マイグレーション: ${migrations:-なし}"
+echo "pr=$pr branch=$branch base=$base issue=${issue:-} migrations=${migrations:-}"

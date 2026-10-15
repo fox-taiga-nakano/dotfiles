@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#MISE description="全 Issue の状態と GitHub の PR・Issue の状態を一覧表示する (--update で 修正中・完了 を GitHub に合わせて付け替える)"
+#MISE dir="{{cwd}}"
+#USAGE flag "--update" help="PR が open なら「修正中」(Issue更新済 以前のとき)、Issue が close 済みなら「完了」に付け替える"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/issue.sh"
+issue_load
+prs="$(gh pr list --state all --limit 300 --json number,state,isDraft,closingIssuesReferences)"
+# 日本語の幅で揃えるため column で整形する
+{
+printf '%s\t%s\t%s\t%s\t%s\n' 番号 状態 PR Issue 備考
+for d in $(compgen -G "$ISSUES_ROOT/[0-9]-*_[0-9]*" | sort -V); do
+  n="$(issue_number_of "$d")"
+  st="$(issue_status_of "$d")"
+  pr="$(jq -r --argjson n "$n" '[.[] | select([.closingIssuesReferences[].number] | index($n)) | "#\(.number) \(.state | ascii_downcase)\(if .isDraft then "(draft)" else "" end)"] | join(",")' <<<"$prs")"
+  is="$(gh issue view "$n" --json state --jq '.state | ascii_downcase')"
+  want=""
+  if [ "$is" = closed ]; then
+    want=完了
+  elif grep -q ' open' <<<"$pr" && [[ " 未着手 再現済 Issue更新済 " == *" $st "* ]]; then
+    want=修正中
+  fi
+  note="-"
+  if [ -n "$want" ] && [ "$want" != "$st" ]; then
+    if [ -n "${usage_update:-}" ]; then
+      issue_mark "$n" "$want" >/dev/null 2>&1; note="$st → $want に変更"; st="$want"
+    else
+      note="→ $want (--update で変更)"
+    fi
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\n' "$n" "$st" "${pr:--}" "$is" "$note"
+done
+} | column -t -s $'\t'
