@@ -1,0 +1,22 @@
+# グローバルタスク: Git・herdr worktree
+# プロジェクト側に同じ名前のタスクがあれば、そちらが優先される
+
+[tasks.unstash]
+description = "インデックスを保持したまま、未追跡ファイルを含む変更を stash する"
+dir = "{{cwd}}"
+run = "git stash push --keep-index -u"
+
+[tasks.'wt:list']
+description = "worktree と herdr workspace の対応を一覧表示する"
+dir = "{{cwd}}"
+run = "herdr worktree list | jq -r '.result.worktrees[] | [(.open_workspace_id // \"-\"), .branch, .path] | @tsv'"
+
+[tasks.'wt:remove']
+description = "worktree を削除する (dev サーバーは事前に止めること)"
+usage = '''
+arg "<workspace>" help="herdr の workspace ID (mise wt:list で確認)"
+flag "--force" help="未コミットの変更があっても削除する"
+'''
+dir = "{{cwd}}"
+confirm = "worktree {{usage.workspace}} を削除します。よろしいですか？"
+run = "herdr worktree remove --workspace {{usage.workspace}}{% if usage.force %} --force{% endif %}"

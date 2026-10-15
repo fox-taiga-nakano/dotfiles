@@ -1,0 +1,33 @@
+# グローバルタスク: Obsidian (vault: note。OBSIDIAN_VAULT で上書きできる)
+# プロジェクト側に同じ名前のタスクがあれば、そちらが優先される
+
+[tasks.'obs:daily']
+description = "今日の日次ノートを開く"
+run = 'obsidian vault="${OBSIDIAN_VAULT:-note}" daily'
+
+[tasks.'obs:capture']
+description = "日次ノートへメモを追加する"
+usage = 'arg "<text>" help="追加する内容"'
+run = 'obsidian vault="${OBSIDIAN_VAULT:-note}" daily:append content="- ${usage_text?}"'
+
+[tasks.'obs:task']
+description = "日次ノートへタスクを追加する"
+usage = 'arg "<text>" help="タスク内容"'
+run = 'obsidian vault="${OBSIDIAN_VAULT:-note}" daily:append content="- [ ] ${usage_text?}"'
+
+[tasks.'obs:search']
+description = "Vault 内を前後の文脈付きで検索する"
+usage = '''
+arg "<query>" help="検索文字列"
+flag "--path <path>" help="検索対象ディレクトリ" default=""
+'''
+run = '''
+obsidian vault="${OBSIDIAN_VAULT:-note}" search:context \
+  query="${usage_query?}" \
+  ${usage_path:+path="${usage_path}"} \
+  format=json
+'''
+
+[tasks.'obs:tasks']
+description = "未完了タスクを一覧表示する"
+run = 'obsidian vault="${OBSIDIAN_VAULT:-note}" tasks todo verbose format=json'

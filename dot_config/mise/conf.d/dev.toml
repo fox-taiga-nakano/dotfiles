@@ -1,0 +1,72 @@
+# グローバルタスク: 開発補助
+# プロジェクト側に同じ名前のタスクがあれば、そちらが優先される
+
+[tasks.'skills:link']
+description = ".agents/skills 配下のスキルを .claude/skills 配下にシンボリックリンクする"
+dir = "{{cwd}}"
+shell = "bash -c"
+run = """
+set -euo pipefail
+[ -d .agents/skills ] || { echo ".agents/skills がありません: $(pwd)" >&2; exit 1; }
+mkdir -p .claude/skills
+for src in .agents/skills/*/; do
+  name="$(basename "$src")"
+  dest=".claude/skills/$name"
+  if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    echo "skip: $dest は既に存在します (シンボリックリンクではありません)" >&2
+    continue
+  fi
+  ln -sfn "../../.agents/skills/$name" "$dest"
+  echo "linked: $dest -> ../../.agents/skills/$name"
+done
+"""
+
+[tasks.erd]
+description = "Prisma スキーマから ER 図を生成して localhost で配信する (スキーマはプロジェクトの [env] の ERD_SCHEMA か引数で指定)"
+usage = 'arg "[schema]" help="Prisma スキーマのパス (省略時は環境変数 ERD_SCHEMA)"'
+dir = "{{cwd}}"
+shell = "bash -c"
+# liam CLI は Prisma 6 系で解析するため、Prisma 7 との差分を吸収した一時スキーマを渡す
+# - datasource に url が無い (Prisma 7) → ダミー値を補う
+# - view に @id/@unique が必須 → 一意制約を持たない view を除外する
+# 出力先は ERD_OUT (既定: erd)、ポートは ERD_PORT (既定: 8080)
+run = '''
+set -euo pipefail
+src="${usage_schema:-${ERD_SCHEMA:-}}"
+[ -n "$src" ] || { echo "スキーマを指定してください (引数か、mise の [env] に ERD_SCHEMA)" >&2; exit 1; }
+[ -f "$src" ] || { echo "スキーマがありません: $src" >&2; exit 1; }
+schema="$(mktemp --suffix=.prisma)"
+trap 'rm -f "$schema"' EXIT
+awk '
+  /^datasource [A-Za-z_]+ \{/ { inds = 1; hasurl = 0 }
+  inds && /^[[:space:]]*url[[:space:]]*=/ { hasurl = 1 }
+  inds && /^\}/ { if (!hasurl) print "  url = \"postgresql://dummy\""; inds = 0 }
+  /^view / { inview = 1; buf = $0 ORS; keep = 0; next }
+  inview {
+    buf = buf $0 ORS
+    if ($0 ~ /@id|@unique|@@id|@@unique/) keep = 1
+    if ($0 ~ /^}/) { if (keep) printf "%s", buf; inview = 0 }
+    next
+  }
+  { print }
+' "$src" > "$schema"
+out="${ERD_OUT:-erd}"
+pnpm dlx @liam-hq/cli erd build --input "$schema" --format prisma --output-dir "$out/"
+pnpm dlx serve "$out" -p "${ERD_PORT:-8080}"
+'''
+
+[tasks.port]
+description = "ローカルのポートの使用状況を表示する (省略時は開発でよく使うポート)"
+usage = 'arg "[port]..." help="調べるポート番号 (省略時は 3000 3001 4000 5000 5432 5433 6006 8080 9001 9999)" var=#true'
+shell = "bash -c"
+run = '''
+# var=#true の default はクォートされた 1 要素で渡ってくるため、既定値はここで持つ
+ports="${usage_port:-3000 3001 4000 5000 5432 5433 6006 8080 9001 9999}"
+pat="$(printf ':%s|' $ports | sed 's/|$//')"
+ss -tulpn | grep -E "(${pat})[[:space:]]" || echo "使用中のポートはありません"
+'''
+
+[tasks.de]
+description = "カレントディレクトリ配下の *.Identifier ファイル (Windows からのコピーで付く Zone.Identifier) を一括削除する"
+dir = "{{cwd}}"
+run = "find ./ -type f -name '*.Identifier' -delete"

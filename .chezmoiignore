@@ -4,3 +4,6 @@ README.md
 .oh-my-zsh/cache
 .oh-my-zsh/log
 .oh-my-zsh/**/*.zwc
+
+# マシン固有・非公開の設定 (VPN 名など)。公開リポジトリに入れない
+.config/mise/conf.d/local.toml

@@ -15,3 +15,6 @@ hunk = "latest"
 
 [settings]
 idiomatic_version_file_enable_tools = ["node"]
+
+# グローバルタスクはカテゴリ別に conf.d/*.toml に置く (名前順に読み込まれる)
+# 長いスクリプトは tasks/ 配下のファイルタスクに置く (例: tasks/pw/pdf → pw:pdf)

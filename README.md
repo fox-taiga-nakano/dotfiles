@@ -44,6 +44,7 @@ chezmoi cd
 - [エイリアス](dot_zsh.d/30-alias.zsh): Windows 連携、個人環境のパス、プロジェクト用コマンド
 - [Git 設定](dot_gitconfig.tmpl): エディターと GitHub CLI のパス
 - [mise 設定](dot_config/mise/config.toml): インストールするランタイム・CLI
+- [mise グローバルタスク](dot_config/mise/conf.d/): カテゴリ別のタスク。VPN 名など非公開の値は chezmoi 管理外の `~/.config/mise/conf.d/local.toml` の `[env]` に書く
 - [パッケージ一覧](.chezmoidata/packages.yaml): Homebrew でインストールするパッケージ
 
 ### 3. 差分を確認して適用
@@ -69,6 +70,8 @@ exec zsh
 | `dot_gitconfig.tmpl`          | `~/.gitconfig`               | Git、delta、GitHub CLI の認証ヘルパー         |
 | `dot_config/git/ignore`       | `~/.config/git/ignore`       | Git の共通除外設定                            |
 | `dot_config/mise/config.toml` | `~/.config/mise/config.toml` | Node.js、Bun、pnpm、各種 CLI のバージョン管理 |
+| `dot_config/mise/conf.d/`     | `~/.config/mise/conf.d/`     | カテゴリ別の mise グローバルタスク            |
+| `dot_config/mise/tasks/`      | `~/.config/mise/tasks/`      | mise のファイルタスク                         |
 | `dot_config/lazygit/`         | `~/.config/lazygit/`         | Git のログ・差分表示                          |
 | `dot_config/herdr/`           | `~/.config/herdr/`           | ターミナルマルチプレクサーの設定              |
 | `dot_config/hunk/`            | `~/.config/hunk/`            | 差分ビューアーの設定                          |

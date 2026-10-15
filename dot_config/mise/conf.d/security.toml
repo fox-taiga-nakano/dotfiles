@@ -1,0 +1,19 @@
+# グローバルタスク: セキュリティ
+# プロジェクト側に同じ名前のタスクがあれば、そちらが優先される
+
+[tasks.audit]
+description = "依存関係の High 以上の脆弱性を検査する (pnpm)"
+dir = "{{cwd}}"
+run = "pnpm audit --audit-level high"
+
+[tasks.scan-image]
+description = "Trivy でコンテナイメージをスキャンする"
+usage = '''
+arg "<image>" help="スキャン対象のコンテナイメージ名"
+flag "--severity <severity>" help="検出する脆弱性レベル (カンマ区切り)" default="HIGH,CRITICAL"
+flag "--exit-code <exit_code>" help="脆弱性検出時の終了コード" default="1"
+flag "--format <format>" help="Trivy の出力形式" default="table"
+flag "--output <output>" help="出力先ファイルパス" default=""
+'''
+dir = "{{cwd}}"
+run = 'trivy image --format "${usage_format?}" ${usage_output:+--output "${usage_output}"} --severity "${usage_severity?}" --exit-code "${usage_exit_code?}" "${usage_image?}"'

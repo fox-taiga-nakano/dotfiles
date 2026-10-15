@@ -1,0 +1,25 @@
+# グローバルタスク: ネットワーク (WSL2・VPN)
+# プロジェクト側に同じ名前のタスクがあれば、そちらが優先される
+# VPN の接続名は公開しないため、chezmoi 管理外の conf.d/local.toml の [env] に VPN_NAME を書く
+
+[tasks.mtu]
+description = "WSL2 のネットワークインターフェースの MTU を 1250 に設定する"
+run = "sudo ip link set eth0 mtu 1250"
+
+[tasks.'vpn:connect']
+description = "Windows の VPN (環境変数 VPN_NAME) に接続し、WSL2 の MTU を 1250 に設定する"
+shell = "bash -c"
+run = """
+set -euo pipefail
+: "${VPN_NAME:?VPN_NAME が未設定です (~/.config/mise/conf.d/local.toml の [env] に書く)}"
+rasdial.exe "$VPN_NAME"
+mise mtu
+"""
+
+[tasks.'vpn:disconnect']
+description = "Windows の VPN (環境変数 VPN_NAME) を切断する"
+shell = "bash -c"
+run = '''
+: "${VPN_NAME:?VPN_NAME が未設定です (~/.config/mise/conf.d/local.toml の [env] に書く)}"
+rasdial.exe "$VPN_NAME" /disconnect
+'''
