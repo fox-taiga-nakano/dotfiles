@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+//MISE description="アプリごとの .env.local を .env.local.example / .env.shared と同期する (ENV_UPDATE_APPS の下の各ディレクトリが対象)"
+//MISE dir="{{cwd}}"
+//USAGE flag "--dry-run" help="変更内容の確認のみ (ファイルは書き換えない)"
+/**
+ * カレントのチェックアウト (メイン or worktree) のルートで、アプリごとの .env.local を一括更新する。
+ * 値はリポジトリの mise の [env] に置く:
+ *   ENV_UPDATE_APPS            アプリのディレクトリを並べた親ディレクトリ (ルートからの相対パス。必須)
+ *   ENV_UPDATE_PUBLIC_PREFIX   共通値を「プレフィックス付きのキー」にも反映する (例: NEXT_PUBLIC_。任意)
+ *
+ * 1. .env.local.example との差分同期 (.env.local.example があるアプリだけが対象)
+ *    - .env.local が無ければ .env.local.example をコピーする
+ *    - example にあって .env.local に無いキーを末尾に追記する（既存の値は変更しない）
+ *    - .env.local にあって example に無いキーは警告のみ出す
+ * 2. 共通値の一括反映
+ *    - ルートの .env.shared に書いた値を、各アプリの .env.local の同名キーへ反映する
+ *    - ENV_UPDATE_PUBLIC_PREFIX があれば、プレフィックス付きのキー（例: SUPABASE_URL → NEXT_PUBLIC_SUPABASE_URL）にも反映する
+ *    - 値が空のキーは反映しない
+ *    - `[admin]` のようなセクション以降に書いたキーは、名前が一致するアプリ（admin, admin-*）にのみ反映する
+ *      （例: [admin] → admin-backend, admin-web / [admin-web] → admin-web）
+ *      複数のセクションに一致する場合は、より具体的なセクションの値を優先する
+ *
+ * ログにはキー名のみ出力し、値は出力しない。
+ */
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+
+function die(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+if (!process.env.ENV_UPDATE_APPS) {
+  die('設定がありません: ENV_UPDATE_APPS (リポジトリの mise の [env] に、ルートからの相対パスで置く)');
+}
+let ROOT;
+try {
+  ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+} catch {
+  die(`git のチェックアウトではありません: ${process.cwd()}`);
+}
+const APPS_DIR = join(ROOT, process.env.ENV_UPDATE_APPS);
+if (!existsSync(APPS_DIR)) die(`ENV_UPDATE_APPS のディレクトリがありません: ${APPS_DIR}`);
+const SHARED_FILE = join(ROOT, '.env.shared');
+const EXAMPLE_NAME = '.env.local.example';
+const LOCAL_NAME = '.env.local';
+const PUBLIC_PREFIX = process.env.ENV_UPDATE_PUBLIC_PREFIX ?? '';
+const ADDED_HEADER = `# --- ${EXAMPLE_NAME} から追加 (update-env) ---`;
+
+const dryRun = process.argv.includes('--dry-run') || process.env.usage_dry_run === 'true';
+
+const ASSIGNMENT = /^(\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=)(.*)$/;
+const SECTION = /^\s*\[([A-Za-z0-9_-]+)\]\s*$/;
+const GLOBAL_SECTION = '';
+
+/** `KEY=value # comment` の右辺を値部分と末尾（インラインコメント等）に分ける */
+function splitValue(rest) {
+  const leading = rest.match(/^\s*/)[0];
+  const body = rest.slice(leading.length);
+  const quote = body[0];
+  if (quote === '"' || quote === "'") {
+    for (let i = 1; i < body.length; i++) {
+      if (body[i] === '\\') {
+        i++;
+      } else if (body[i] === quote) {
+        return { value: leading + body.slice(0, i + 1), trailing: body.slice(i + 1) };
+      }
+    }
+  }
+  const commentAt = rest.search(/\s#/);
+  return commentAt === -1
+    ? { value: rest, trailing: '' }
+    : { value: rest.slice(0, commentAt), trailing: rest.slice(commentAt) };
+}
+
+/** コメントアウトされていない代入行を解析する */
+function parseLine(line) {
+  const match = line.match(ASSIGNMENT);
+  if (!match) return undefined;
+  const [, prefix, key, rest] = match;
+  return { prefix, key, ...splitValue(rest) };
+}
+
+function readLines(path) {
+  return readFileSync(path, 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
+}
+
+function keysOf(lines) {
+  return new Set(lines.map(parseLine).filter(Boolean).map(({ key }) => key));
+}
+
+function isEmptyValue(value) {
+  return /^\s*(""|'')?\s*$/.test(value);
+}
+
+/** .env.shared をセクションごとに読み込む（セクション外のキーは GLOBAL_SECTION に入る） */
+function loadShared() {
+  const sections = new Map([[GLOBAL_SECTION, new Map()]]);
+  if (!existsSync(SHARED_FILE)) return sections;
+  let current = sections.get(GLOBAL_SECTION);
+  for (const line of readLines(SHARED_FILE)) {
+    const section = line.match(SECTION)?.[1];
+    if (section) {
+      if (!sections.has(section)) sections.set(section, new Map());
+      current = sections.get(section);
+      continue;
+    }
+    const parsed = parseLine(line);
+    if (parsed && !isEmptyValue(parsed.value)) current.set(parsed.key, parsed.value.trim());
+  }
+  return sections;
+}
+
+function sectionMatches(section, app) {
+  return section === GLOBAL_SECTION || app === section || app.startsWith(`${section}-`);
+}
+
+/** app に一致するセクションを、汎用的なもの → 具体的なものの順に返す */
+function sectionsFor(sections, app) {
+  return [...sections.keys()].filter((section) => sectionMatches(section, app)).sort((a, b) => a.length - b.length);
+}
+
+/** 共通キーから、反映先となりうるキー名の一覧を返す */
+function targetKeys(sharedKey) {
+  return !PUBLIC_PREFIX || sharedKey.startsWith(PUBLIC_PREFIX) ? [sharedKey] : [sharedKey, PUBLIC_PREFIX + sharedKey];
+}
+
+function syncWithExample(localLines, exampleLines) {
+  const localKeys = keysOf(localLines);
+  const exampleKeys = keysOf(exampleLines);
+
+  const missingLines = exampleLines.filter((line) => {
+    const parsed = parseLine(line);
+    return parsed && !localKeys.has(parsed.key);
+  });
+  const lines = missingLines.length > 0 ? [...localLines, '', ADDED_HEADER, ...missingLines] : localLines;
+
+  return {
+    lines,
+    added: missingLines.map((line) => parseLine(line).key),
+    extra: [...localKeys].filter((key) => !exampleKeys.has(key)),
+  };
+}
+
+function applyShared(lines, sections, app, usedSharedKeys) {
+  const targets = new Map();
+  for (const section of sectionsFor(sections, app)) {
+    const sectionTargets = new Map();
+    for (const [sharedKey, value] of sections.get(section)) {
+      for (const key of targetKeys(sharedKey)) {
+        // プレフィックス付きで明示されたキーを優先する
+        if (!sectionTargets.has(key) || sharedKey === key) {
+          sectionTargets.set(key, { sharedKey: `${section ? `[${section}] ` : ''}${sharedKey}`, value });
+        }
+      }
+    }
+    // 後に処理する（より具体的な）セクションの値で上書きする
+    for (const [key, target] of sectionTargets) targets.set(key, target);
+  }
+
+  const updated = [];
+  const nextLines = lines.map((line) => {
+    const parsed = parseLine(line);
+    const target = parsed && targets.get(parsed.key);
+    if (!target) return line;
+    usedSharedKeys.add(target.sharedKey);
+    if (parsed.value.trim() === target.value) return line;
+    updated.push(parsed.key);
+    const separator = parsed.trailing && !/^\s/.test(parsed.trailing) ? ' ' : '';
+    return `${parsed.prefix}${target.value}${separator}${parsed.trailing}`;
+  });
+  return { lines: nextLines, updated };
+}
+
+function main() {
+  const apps = readdirSync(APPS_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(APPS_DIR, entry.name, EXAMPLE_NAME)))
+    .map((entry) => entry.name)
+    .sort();
+
+  const sections = loadShared();
+  if ([...sections.values()].every((values) => values.size === 0)) {
+    console.log(`ℹ ${relative(ROOT, SHARED_FILE)} が無い（または値が空）ため、共通値の反映はスキップします`);
+  }
+  if (dryRun) console.log('🔍 dry-run: ファイルは書き換えません\n');
+
+  const usedSharedKeys = new Set();
+  for (const app of apps) {
+    const examplePath = join(APPS_DIR, app, EXAMPLE_NAME);
+    const localPath = join(APPS_DIR, app, LOCAL_NAME);
+    const exampleLines = readLines(examplePath);
+    const created = !existsSync(localPath);
+    const originalLines = created ? exampleLines : readLines(localPath);
+
+    const synced = created ? { lines: exampleLines, added: [], extra: [] } : syncWithExample(originalLines, exampleLines);
+    const { lines, updated } = applyShared(synced.lines, sections, app, usedSharedKeys);
+    const changed = created || lines.join('\n') !== originalLines.join('\n');
+
+    console.log(`■ ${relative(ROOT, localPath)}`);
+    if (created) console.log(`  + ${EXAMPLE_NAME} から新規作成`);
+    if (synced.added.length > 0) console.log(`  + 追加: ${synced.added.join(', ')}`);
+    if (updated.length > 0) console.log(`  ~ 共通値を反映: ${updated.join(', ')}`);
+    if (synced.extra.length > 0) console.log(`  ⚠ ${EXAMPLE_NAME} に無いキー: ${synced.extra.join(', ')}`);
+    if (!changed) console.log('  変更なし');
+
+    if (changed && !dryRun) writeFileSync(localPath, `${lines.join('\n')}\n`);
+  }
+
+  const unusedSharedKeys = [...sections]
+    .flatMap(([section, values]) => [...values.keys()].map((key) => `${section ? `[${section}] ` : ''}${key}`))
+    .filter((key) => !usedSharedKeys.has(key));
+  if (unusedSharedKeys.length > 0) {
+    console.log(`\n⚠ どの app にも反映されなかった共通キー: ${unusedSharedKeys.join(', ')}`);
+  }
+}
+
+main();
