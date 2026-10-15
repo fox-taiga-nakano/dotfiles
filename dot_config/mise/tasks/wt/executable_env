@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="チェックアウトの WT_PATH / WT_MAIN / WT_SLOT / WT_PORT_<サービス> を export 文で出力する (eval \"$(mise wt:env)\" で使う)"
+#MISE dir="{{cwd}}"
+#MISE quiet=true
+#USAGE arg "[path]" help="対象のチェックアウト (省略時はカレント。メインは slot 0)"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load "${usage_path:-.}"
+wt_require_config
+wt_export_env
+for v in WT_PATH WT_MAIN WT_SLOT $(compgen -A export WT_PORT_ || true); do printf 'export %s=%q\n' "$v" "${!v}"; done

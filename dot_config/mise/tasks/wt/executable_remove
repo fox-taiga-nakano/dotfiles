@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="worktree を削除する (.herdr/worktree.json に pre_remove フックがあれば先に実行する)"
+#MISE dir="{{cwd}}"
+#MISE confirm="worktree {{usage.workspace}} を削除します。よろしいですか？"
+#USAGE arg "<workspace>" help="herdr の workspace ID (mise wt:list で確認)"
+#USAGE flag "--force" help="未コミットの変更があっても削除する"
+#USAGE flag "--no-hooks" help="pre_remove フックを実行しない"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+ws="$usage_workspace"
+path="$(herdr worktree list --workspace "$ws" | jq -r --arg w "$ws" '.result.worktrees[] | select(.open_workspace_id == $w) | .path')"
+[ -n "$path" ] || wt_die "workspace $ws の worktree が見つかりません (mise wt:list で確認)"
+if [ -z "${usage_no_hooks:-}" ] && [ -d "$path" ]; then
+  wt_load "$path"
+  if wt_has_config; then
+    wt_require_config
+    wt_require_worktree
+    if wt_has_hook pre_remove; then
+      wt_export_env
+      wt_run_hook pre_remove
+    fi
+  fi
+fi
+herdr worktree remove --workspace "$ws" ${usage_force:+--force}

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#MISE description="ブランチを herdr worktree に展開し、.herdr/worktree.json に従って git 管理外ファイルのコピー・ポート割り当て・フックまで行う"
+#MISE dir="{{cwd}}"
+#USAGE arg "<branch>" help="対象ブランチ (リモートのみでも可)"
+#USAGE flag "--no-hooks" help="フック (post_sync / post_create) を実行しない"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load
+wt_require_config
+branch="$usage_branch"
+if git show-ref --verify --quiet "refs/heads/$branch"; then
+  git fetch origin "$branch" || echo "警告: origin から $branch を取得できませんでした (ローカルのブランチで作成します)" >&2
+else
+  git fetch origin "$branch"
+  git branch --track "$branch" "origin/$branch"
+fi
+res="$(herdr worktree create --cwd "$WT_MAIN" --branch "$branch" --no-focus)"
+wt="$(jq -r '.result.worktree.path' <<<"$res")"
+ws="$(jq -r '.result.workspace.workspace_id' <<<"$res")"
+pane="$(jq -r '.result.root_pane.pane_id' <<<"$res")"
+mise wt:sync "$wt" ${usage_no_hooks:+--no-hooks}
+# post_create は init など時間のかかるものを想定し、ログが残るよう worktree の root pane で実行して終わるまで待つ
+if [ -z "${usage_no_hooks:-}" ] && wt_has_hook post_create; then
+  mark="__WT_HOOK_DONE_${RANDOM}${RANDOM}__"
+  herdr pane run "$pane" "mise wt:hook post_create $(printf %q "$wt"); echo $mark \$?"
+  herdr pane wait-output "$pane" --regex "^$mark \\d+" --timeout 580000 >/dev/null
+  herdr pane read "$pane" --source recent-unwrapped --lines 200 | grep -q "^$mark 0" \
+    || wt_die "post_create フックが失敗しました (pane $pane を確認)"
+fi
+echo "worktree=$wt workspace=$ws pane=$pane"

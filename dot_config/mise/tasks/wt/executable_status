@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#MISE description="カレントのチェックアウトの slot とポート、全 slot (0〜9) の dev ポートの使用状況 (port・pid・cwd) を表示する"
+#MISE dir="{{cwd}}"
+#USAGE flag "--check-free" help="カレントのチェックアウトの dev ポートが使用中ならエラーにする"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load
+wt_require_config
+wt_has_services || wt_die "services がありません: $WT_CONFIG"
+slot="$(wt_slot)"
+echo "このチェックアウト: slot=${slot:-未割り当て} $( [ -z "$slot" ] || wt_ports "$slot" | tr '\t' '=' | tr '\n' ' ')"
+declare -A owner
+for n in $(seq 0 9); do
+  while IFS=$'\t' read -r name port; do owner[$port]="$n"$'\t'"$name"; done < <(wt_ports "$n")
+done
+used=0 busy=""
+while IFS=$'\t' read -r port pid; do
+  [ -n "${owner[$port]:-}" ] || continue
+  IFS=$'\t' read -r n name <<<"${owner[$port]}"
+  echo "port=$port service=$name slot=$n pid=$pid cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?')"
+  used=1
+  [ "$n" != "$slot" ] || busy+=" $port"
+done < <(wt_listening)
+[ "$used" = 1 ] || echo "dev ポートは空いています"
+if [ -n "${usage_check_free:-}" ] && [ -n "$busy" ]; then
+  wt_die "このチェックアウトの dev ポート ($(echo $busy)) が使用中です。先に停止してください"
+fi

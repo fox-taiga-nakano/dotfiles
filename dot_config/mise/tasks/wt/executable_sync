@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#MISE description="メインのチェックアウトから .herdr/worktree.json の sync のファイルを worktree にコピーし、ポートを反映して post_sync フックを実行する"
+#MISE dir="{{cwd}}"
+#USAGE arg "[path]" help="コピー先 worktree (省略時はカレントの worktree)"
+#USAGE flag "--no-hooks" help="post_sync フックを実行しない"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load "${usage_path:-.}"
+wt_require_config
+wt_require_worktree
+dest="$WT_PATH"
+cd "$WT_MAIN"
+shopt -s nullglob globstar
+while IFS= read -r -d '' -u 3 pat; do
+  case "$pat" in /* | ../* | */../* | .. | */..) wt_die "sync にはリポジトリ内の相対パスを書いてください: $pat" ;; esac
+  dir=""
+  [[ "$pat" == */ ]] && { dir=1; pat="${pat%/}"; }
+  # IFS を空にして、glob の展開だけ行う (空白を含むパスを分割しない)
+  IFS=''; matches=($pat); IFS=$' \t\n'
+  for f in "${matches[@]}"; do
+    if [ -n "$dir" ]; then
+      [ -d "$f" ] || { echo "skip: $f はディレクトリではありません" >&2; continue; }
+      rm -rf "${dest:?}/$f"
+      mkdir -p "$dest/$(dirname "$f")" && cp -a "$f" "$dest/$f" && echo "copied: $f/"
+    else
+      [ ! -d "$f" ] || { echo "skip: $f はディレクトリです (ディレクトリごとコピーするなら末尾に / を付ける)" >&2; continue; }
+      mkdir -p "$dest/$(dirname "$f")" && cp -p "$f" "$dest/$f" && echo "copied: $f"
+      # コピーした mise の設定ファイルは untrusted なので trust する
+      case "$(basename "$f")" in mise*.toml | .mise*.toml) mise trust --quiet "$dest/$f" ;; esac
+    fi
+  done
+done 3< <(jq -j '.sync // [] | .[] | . + "\u0000"' "$WT_CONFIG")
+# コピーで env ファイルがメインのポートに戻るので、worktree のポートを反映し直す
+mise wt:ports "$dest"
+if [ -z "${usage_no_hooks:-}" ] && wt_has_hook post_sync; then
+  wt_export_env
+  wt_run_hook post_sync
+fi

@@ -12,6 +12,7 @@ herdr = "latest"
 "npm:druk" = "latest"
 chezmoi = "latest"
 hunk = "latest"
+"npm:concurrently" = "latest"
 
 [settings]
 idiomatic_version_file_enable_tools = ["node"]

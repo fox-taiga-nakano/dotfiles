@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#MISE description="カレントの worktree の workspace の verify タブ (無ければ作成) で claude を起動する (メインのチェックアウトも作業ディレクトリに加える)"
+#MISE dir="{{cwd}}"
+#USAGE arg "<name>" help="herdr のエージェント名 (例: verify-123)"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load
+wt_require_worktree
+name="$usage_name"
+ws="$(wt_workspace "$WT_PATH")"
+pane="$(wt_tab_pane "$ws" verify "$WT_PATH")"
+cur="$(herdr pane list --workspace "$ws" | jq -r --arg p "$pane" '.result.panes[] | select(.pane_id == $p) | .agent // empty')"
+if [ -n "$cur" ]; then
+  echo "verify タブ (pane $pane) ではすでに $cur が動いています。再利用するか、終了してから実行してください" >&2
+  herdr agent get "$pane" | jq -c '.result.agent | {pane_id, agent, agent_status}' >&2 || true
+  exit 1
+fi
+herdr agent start "$name" --kind claude --pane "$pane" --timeout 120000 -- --add-dir "$WT_MAIN" >/dev/null \
+  || wt_die "claude の起動待ちで止まりました。フォルダの信頼確認などのダイアログが出ていないか確認してください: herdr agent read $name --lines 40"
+echo "agent=$name workspace=$ws pane=$pane"

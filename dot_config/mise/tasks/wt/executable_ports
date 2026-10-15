@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#MISE description="worktree に dev ポートの slot を割り当て、.herdr/worktree.json の env_files に反映する (ポート = 既定値 + slot × slot_step)"
+#MISE dir="{{cwd}}"
+#USAGE arg "[path]" help="対象 worktree (省略時はカレントの worktree)"
+#USAGE flag "--slot <n>" help="slot (1〜9) を指定する。省略時は割り当て済みの slot、無ければ他の worktree と被らない最小の slot"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load "${usage_path:-.}"
+wt_require_config
+wt_require_worktree
+dest="$WT_PATH"
+others="$(git -C "$WT_MAIN" worktree list --porcelain | sed -n 's/^worktree //p' | while read -r p; do [ "$p" = "$dest" ] || wt_slot_of "$p"; done)"
+slot="${usage_slot:-}"
+[ -n "$slot" ] || slot="$(wt_slot_of "$dest")"
+if [ -z "$slot" ]; then
+  for n in $(seq 1 9); do grep -qx "$n" <<<"$others" || { slot=$n; break; }; done
+  [ -n "$slot" ] || wt_die "空いている slot がありません (1〜9 を使用中)"
+fi
+[[ "$slot" =~ ^[1-9]$ ]] || wt_die "slot は 1〜9 で指定してください: $slot"
+grep -qx "$slot" <<<"$others" && echo "警告: slot $slot は他の worktree でも使われています" >&2
+echo "PORT_SLOT=$slot" > "$dest/.ports.env"
+
+ports="$(wt_cfg -c --argjson slot "$slot" '(.slot_step // 0) as $s | .services // {} | map_values(.port + $slot * $s)')"
+fill='def fill: reduce ($ports | to_entries[]) as $p (.; gsub("\\{" + $p.key + "\\}"; $p.value | tostring));'
+bad="$(wt_cfg --argjson ports "$ports" "$fill"' [.env_files // [] | .[] | .value | select(fill | test("\\{[A-Za-z0-9_-]+\\}"))] | join(", ")')"
+[ -z "$bad" ] || wt_die "env_files の value に services に無い名前があります: $bad"
+while IFS= read -r -d '' -u 3 file && IFS= read -r -d '' -u 3 key && IFS= read -r -d '' -u 3 value; do
+  f="$dest/$file"
+  [ -f "$f" ] || { echo "skip: $file がありません" >&2; continue; }
+  # キーの行があれば置き換え、無ければ末尾に追加する (値に記号があっても壊れないよう ENVIRON で渡す)
+  K="$key" V="$value" awk 'index($0, ENVIRON["K"] "=") == 1 { print ENVIRON["K"] "=" ENVIRON["V"]; done = 1; next } { print } END { if (!done) print ENVIRON["K"] "=" ENVIRON["V"] }' "$f" > "$f.wt-tmp"
+  cat "$f.wt-tmp" > "$f" && rm -f "$f.wt-tmp"
+  echo "set: $file $key=$value"
+done 3< <(wt_cfg -j --argjson ports "$ports" "$fill"' .env_files // [] | .[] | .file + "\u0000" + .key + "\u0000" + (.value | fill) + "\u0000"')
+echo "slot=$slot $(wt_ports "$slot" | tr '\t' '=' | tr '\n' ' ')"

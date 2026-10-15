@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="カレントの worktree の workspace の dev タブ (無ければ作成) で wt:serve を起動し、全サービスのポートが開くまで待つ"
+#MISE dir="{{cwd}}"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load
+wt_require_config
+wt_require_worktree
+wt_has_services || wt_die "services がありません: $WT_CONFIG"
+mise wt:ports "$WT_PATH"
+mise wt:status --check-free >/dev/null
+wt_export_env
+ws="$(wt_workspace "$WT_PATH")"
+pane="$(wt_tab_pane "$ws" dev "$WT_PATH")"
+mark="__WT_SERVE_EXIT_${RANDOM}${RANDOM}__"
+herdr pane run "$pane" "mise wt:serve; echo $mark \$?"
+mapfile -t ports < <(wt_ports "$WT_SLOT" | cut -f2)
+for _ in $(seq 1 60); do
+  open="$(wt_listening | cut -f1 | sort -u | grep -cxF -f <(printf '%s\n' "${ports[@]}") || true)"
+  [ "$open" -ge "${#ports[@]}" ] && { echo "dev 起動完了 pane=$pane"; mise wt:status; exit 0; }
+  # pre_serve の失敗などで wt:serve が終わっていたら待たずに失敗にする
+  herdr pane read "$pane" --source recent-unwrapped --lines 200 | grep -q "^$mark " \
+    && wt_die "wt:serve が終了しました (pane $pane を確認)"
+  sleep 5
+done
+wt_die "dev サーバーのポートが開きません (pane $pane を確認)"

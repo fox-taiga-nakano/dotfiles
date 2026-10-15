@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="チェックアウト (省略時はカレント) の dev タブで動いている dev サーバーを停止し、ポートが閉じるまで待つ"
+#MISE dir="{{cwd}}"
+#USAGE arg "[path]" help="対象のチェックアウト (メイン・別の worktree も可。省略時はカレント)"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load "${usage_path:-.}"
+wt_require_config
+slot="$(wt_slot)"
+[ -n "$slot" ] || { echo "slot が未割り当てです (dev サーバーは起動していません)"; exit 0; }
+ws="$(wt_workspace "$WT_PATH")"
+pane="$(wt_tab_pane "$ws" dev)"
+[ -n "$pane" ] || { echo "dev タブがありません (dev サーバーは起動していません)"; exit 0; }
+herdr pane send-keys "$pane" ctrl+c >/dev/null
+mapfile -t ports < <(wt_ports "$slot" | cut -f2)
+own() {
+  wt_listening | grep -E "^($(IFS='|'; echo "${ports[*]}"))"$'\t' | cut -f2 | sort -u | while read -r p; do
+    c="$(readlink "/proc/$p/cwd" 2>/dev/null || true)"
+    [ "$c" = "$WT_PATH" ] || [[ "$c" == "$WT_PATH/"* ]] && echo "$p"
+  done
+}
+for _ in $(seq 1 30); do
+  [ -z "$(own)" ] && { echo "dev 停止完了 pane=$pane"; mise wt:status; exit 0; }
+  sleep 2
+done
+wt_die "dev サーバーが停止しません (pane $pane を確認): pid $(own | tr '\n' ' ')"

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="カレントの worktree のポートで .herdr/worktree.json の serve と services の cmd をフォアグラウンド起動する (通常は wt:dev から使う)"
+#MISE dir="{{cwd}}"
+set -euo pipefail
+source "$(dirname "$(realpath "$0")")/../../lib/wt.sh"
+wt_load
+wt_require_config
+wt_require_worktree
+mise wt:ports "$WT_PATH" >/dev/null
+wt_export_env
+cd "$WT_PATH"
+wt_run_hook pre_serve
+names=() cmds=()
+serve="$(wt_cfg '.serve // empty')"
+[ -z "$serve" ] || { names+=(serve); cmds+=("$serve"); }
+while IFS= read -r -d '' -u 3 name && IFS= read -r -d '' -u 3 cmd; do names+=("$name"); cmds+=("$cmd"); done \
+  3< <(wt_cfg -j '.services // {} | to_entries[] | select(.value.cmd) | .key + "\u0000" + .value.cmd + "\u0000"')
+[ "${#cmds[@]}" -gt 0 ] || wt_die "serve も services の cmd もありません: $WT_CONFIG"
+echo "slot=$WT_SLOT $(wt_ports "$WT_SLOT" | tr '\t' '=' | tr '\n' ' ')"
+[ "${#cmds[@]}" -gt 1 ] || exec bash -c "${cmds[0]}"
+exec concurrently -n "$(IFS=,; echo "${names[*]}")" "${cmds[@]}"
