@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+#MISE description="GitHub の Issue/PR に貼った画像・動画 (user-attachments) をダウンロードし、VS Code でプレビューできる *.preview.md を作る"
+#MISE dir="{{cwd}}"
+#USAGE arg "<markdown>" help="対象の Markdown ファイル (元ファイルは書き換えない)"
+#USAGE flag "--watch" help="元ファイルの変更を監視して作り直し続ける"
+#USAGE flag "--max-mb <mb>" help="1 ファイルあたりのダウンロード上限 (MB。既定 100)"
+"""Create a VS Code-friendly Markdown preview of GitHub issue/PR attachments.
+
+Requirements: Python 3.10+ and an authenticated GitHub CLI (`gh`).
+No third-party Python packages or VS Code extensions are required.
+
+The original Markdown is never edited. A sibling *.preview.md is created,
+with downloaded images/videos stored in .github-preview-assets/.
+
+Usage:
+    python3 gh_md_preview.py README.md
+    python3 gh_md_preview.py README.md --watch
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import NamedTuple
+
+ASSET_URL_RE = re.compile(
+    r"https://github\.com/user-attachments/assets/"
+    r"(?P<id>[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"
+    r"(?![\w-])",
+    re.IGNORECASE,
+)
+FENCE_RE = re.compile(r"^[ \t]{0,3}(?P<marker>`{3,}|~{3,})(?P<rest>[^\r\n]*)")
+INLINE_CODE_RE = re.compile(r"(`+)([^`\r\n]*?)\1")
+MD_IMAGE_RE = re.compile(
+    r"!\[(?P<alt>[^\]\r\n]*)\]"
+    r"\(\s*(?P<url>https://github\.com/user-attachments/assets/"
+    r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"
+    r"(?:\s+(?P<title>\"[^\"\r\n]*\"|'[^'\r\n]*'))?\s*\)",
+    re.IGNORECASE,
+)
+STANDALONE_RE = re.compile(
+    r"(?P<prefix>[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?)"
+    r"<?(?P<url>https://github\.com/user-attachments/assets/"
+    r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})>?"
+    r"[ \t]*",
+    re.IGNORECASE,
+)
+SUPPORTED_EXTENSIONS = {
+    ".png", ".jpg", ".gif", ".webp", ".bmp", ".tiff",
+    ".svg", ".avif", ".heic", ".mp4", ".mov", ".webm",
+}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
+ASSET_DIR_NAME = ".github-preview-assets"
+PREVIEW_SUFFIX = ".preview.md"
+
+
+class Asset(NamedTuple):
+    path: Path
+    kind: str  # 'image' or 'video'
+
+
+class DownloadError(Exception):
+    pass
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def detect_extension(path: Path) -> str | None:
+    """Check magic bytes. Never save an HTML error page as an image."""
+    with path.open("rb") as file:
+        header = file.read(4096)
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+        return ".webp"
+    if header.startswith(b"BM"):
+        return ".bmp"
+    if header.startswith((b"II*\x00", b"MM\x00*")):
+        return ".tiff"
+    if header.startswith(b"\x1a\x45\xdf\xa3") and b"webm" in header[:256].lower():
+        return ".webm"
+    if len(header) >= 12 and header[4:8] == b"ftyp":
+        brand = header[8:12]
+        brands = header[8:64]
+        if brand in (b"avif", b"avis") or b"avif" in brands:
+            return ".avif"
+        if brand in (b"heic", b"heix", b"hevc", b"hevx", b"mif1") and b"heic" in brands:
+            return ".heic"
+        if brand == b"qt  ":
+            return ".mov"
+        return ".mp4"
+    # SVGs can include an XML declaration and a BOM.
+    text = header.lstrip(b"\xef\xbb\xbf \t\r\n")
+    if text.startswith(b"<svg") or (text.startswith(b"<?xml") and re.search(rb"<svg[\s>]", text)):
+        return ".svg"
+    return None
+
+
+def atomic_write(path: Path, text: str) -> None:
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n", dir=path.parent,
+            prefix="." + path.name + ".", suffix=".tmp", delete=False,
+        ) as file:
+            temp_path = Path(file.name)
+            file.write(text)
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+_token: str | None = None
+
+
+def gh_token() -> str:
+    global _token
+    if _token is None:
+        result = subprocess.run(
+            ["gh", "auth", "token", "--hostname", "github.com"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise DownloadError("gh auth token に失敗しました。`gh auth login` を実行してください。")
+        _token = result.stdout.strip()
+    return _token
+
+
+def open_url(url: str, max_redirects: int = 5):
+    """Send the GitHub token to github.com only; follow redirects (signed S3 URLs) without it."""
+    opener = urllib.request.build_opener(_NoRedirect)
+    for _ in range(max_redirects + 1):
+        headers = {"User-Agent": "md-preview"}
+        if urllib.parse.urlsplit(url).hostname == "github.com":
+            headers["Authorization"] = "token " + gh_token()
+        try:
+            return opener.open(urllib.request.Request(url, headers=headers), timeout=60)
+        except urllib.error.HTTPError as error:
+            location = error.headers.get("Location")
+            if error.code in (301, 302, 303, 307, 308) and location:
+                url = urllib.parse.urljoin(url, location)
+                if urllib.parse.urlsplit(url).scheme != "https":
+                    raise DownloadError(f"https 以外へのリダイレクトは辿りません: {url}") from None
+                continue
+            raise DownloadError(f"HTTP {error.code}") from None
+        except urllib.error.URLError as error:
+            raise DownloadError(str(error.reason)) from None
+    raise DownloadError("リダイレクトが多すぎます。")
+
+
+def download_asset(url: str, asset_id: str, asset_dir: Path, max_mb: int) -> Asset:
+    # Asset IDs are strictly validated by ASSET_URL_RE and cannot escape asset_dir.
+    for ext in sorted(SUPPORTED_EXTENSIONS):
+        cached = asset_dir / (asset_id + ext)
+        if not cached.is_symlink() and cached.is_file() and cached.stat().st_size:
+            if detect_extension(cached) == ext:
+                return Asset(cached, "video" if ext in VIDEO_EXTENSIONS else "image")
+
+    if shutil.which("gh") is None:
+        raise DownloadError("GitHub CLI (gh) が見つかりません。")
+
+    limit = max_mb * 1024 * 1024
+    temp_path: Path | None = None
+    try:
+        with open_url(url) as response, tempfile.NamedTemporaryFile(
+            dir=asset_dir, prefix="." + asset_id + ".", suffix=".tmp", delete=False,
+        ) as file:
+            temp_path = Path(file.name)
+            size = 0
+            while chunk := response.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise DownloadError(f"{max_mb}MB を超えています (--max-mb で変更できます)。")
+                file.write(chunk)
+        ext = detect_extension(temp_path)
+        if ext is None:
+            raise DownloadError("画像・動画として認識できない内容でした。")
+        path = asset_dir / (asset_id + ext)
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, path)
+        temp_path = None
+        return Asset(path, "video" if ext in VIDEO_EXTENSIONS else "image")
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+class Renderer:
+    def __init__(self, source: Path, max_mb: int) -> None:
+        self.source = source
+        self.asset_dir = source.parent / ASSET_DIR_NAME
+        self.max_mb = max_mb
+        self.assets: dict[str, Asset | None] = {}
+
+    def asset(self, url: str) -> Asset | None:
+        asset_id = ASSET_URL_RE.match(url)["id"].lower()
+        if asset_id not in self.assets:
+            self.asset_dir.mkdir(mode=0o700, exist_ok=True)
+            try:
+                self.assets[asset_id] = download_asset(url, asset_id, self.asset_dir, self.max_mb)
+            except DownloadError as error:
+                print(f"取得失敗: {url}: {error}", file=sys.stderr)
+                self.assets[asset_id] = None
+        return self.assets[asset_id]
+
+    def src(self, asset: Asset) -> str:
+        return f"{ASSET_DIR_NAME}/{asset.path.name}"
+
+    def video_tag(self, asset: Asset, title: str = "") -> str:
+        title_attr = f' title="{html.escape(title)}"' if title else ""
+        return f'<video src="{self.src(asset)}" controls muted playsinline{title_attr}></video>'
+
+    def standalone(self, line: str) -> str | None:
+        """A line that is only an attachment URL is rendered by GitHub as an image/video."""
+        match = STANDALONE_RE.fullmatch(line)
+        if not match or not (asset := self.asset(match["url"])):
+            return None
+        if asset.kind == "video":
+            return match["prefix"] + self.video_tag(asset)
+        return match["prefix"] + f'<img src="{self.src(asset)}" alt="">'
+
+    def md_image(self, match: re.Match[str]) -> str:
+        asset = self.asset(match["url"])
+        if asset is None:
+            return match[0]
+        title = match["title"][1:-1] if match["title"] else ""
+        if asset.kind == "video":
+            return self.video_tag(asset, title or match["alt"])
+        title_part = f" {match['title']}" if match["title"] else ""
+        return f"![{match['alt']}]({self.src(asset)}{title_part})"
+
+    def bare_url(self, match: re.Match[str]) -> str:
+        # e.g. <img src="..."> or [link](...): swap the URL for the local file.
+        asset = self.asset(match[0])
+        return self.src(asset) if asset else match[0]
+
+    def text(self, segment: str) -> str:
+        segment = MD_IMAGE_RE.sub(self.md_image, segment)
+        return ASSET_URL_RE.sub(self.bare_url, segment)
+
+    def line(self, line: str) -> str:
+        if (rendered := self.standalone(line)) is not None:
+            return rendered
+        parts: list[str] = []
+        pos = 0
+        for code in INLINE_CODE_RE.finditer(line):
+            parts.append(self.text(line[pos:code.start()]))
+            parts.append(code[0])
+            pos = code.end()
+        parts.append(self.text(line[pos:]))
+        return "".join(parts)
+
+    def render(self, markdown: str) -> str:
+        out: list[str] = []
+        fence: str | None = None
+        for line in markdown.splitlines():
+            match = FENCE_RE.match(line)
+            if fence is not None:
+                # A closing fence uses the same character, is at least as long and has no info string.
+                if match and match["marker"][0] == fence[0] and len(match["marker"]) >= len(fence) \
+                        and not match["rest"].strip():
+                    fence = None
+                out.append(line)
+            elif match and not (match["marker"][0] == "`" and "`" in match["rest"]):
+                fence = match["marker"]
+                out.append(line)
+            else:
+                out.append(self.line(line))
+        return "\n".join(out) + "\n"
+
+
+def preview_path(source: Path) -> Path:
+    return source.with_name(source.name.removesuffix(".md") + PREVIEW_SUFFIX)
+
+
+def build(source: Path, max_mb: int) -> Path:
+    target = preview_path(source)
+    markdown = source.read_text(encoding="utf-8")
+    atomic_write(target, Renderer(source, max_mb).render(markdown))
+    return target
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("markdown", type=Path)
+    parser.add_argument("--watch", action="store_true")
+    parser.add_argument("--max-mb", type=int, default=100)
+    args = parser.parse_args()
+
+    source: Path = args.markdown.resolve()
+    if not source.is_file():
+        parser.error(f"ファイルがありません: {args.markdown}")
+    if source.name.endswith(PREVIEW_SUFFIX):
+        parser.error(f"{PREVIEW_SUFFIX} は生成物です。元の Markdown を指定してください。")
+    if args.max_mb <= 0:
+        parser.error("--max-mb は 1 以上を指定してください。")
+
+    target = build(source, args.max_mb)
+    print(f"作成: {target}", flush=True)
+    if not args.watch:
+        return 0
+
+    print("監視中 (Ctrl-C で終了)", flush=True)
+    last = source.stat().st_mtime_ns
+    try:
+        while True:
+            time.sleep(1)
+            try:
+                mtime = source.stat().st_mtime_ns
+            except FileNotFoundError:
+                continue
+            if mtime != last:
+                last = mtime
+                build(source, args.max_mb)
+                print(f"更新: {time.strftime('%H:%M:%S')}", flush=True)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
