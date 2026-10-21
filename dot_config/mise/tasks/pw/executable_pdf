@@ -6,10 +6,11 @@
 set -euo pipefail
 pdf="$(realpath "$usage_pdf")"
 out="${usage_out:-}"
-[ -n "$out" ] || out="${pdf%.pdf}"
+[ -n "$out" ] && out="$(realpath -m -- "$out")" || out="${pdf%.pdf}"
+# mise pw はルートに移って実行するので、出力先は絶対パスにしておく
 tmp="$(mktemp -d)"
 port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
-cleanup(){ playwright-cli -s=pdf close >/dev/null 2>&1 || true; [ -n "${srv:-}" ] && kill "$srv" 2>/dev/null || true; rm -rf "$tmp"; }
+cleanup(){ mise pw -s=pdf close >/dev/null 2>&1 || true; [ -n "${srv:-}" ] && kill "$srv" 2>/dev/null || true; rm -rf "$tmp"; }
 trap cleanup EXIT
 cp "$pdf" "$tmp/doc.pdf"
 # カレントの .playwright/cli.config.json に左右されないよう、chromium を使う設定を明示する
@@ -28,18 +29,18 @@ window.pdfText=texts;window.numPages=pdf.numPages;}catch(e){window.pdfError=Stri
 HTML
 (cd "$tmp" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) & srv=$!
 sleep 1
-playwright-cli -s=pdf open --config="$tmp/cli.config.json" "http://127.0.0.1:$port/index.html" >/dev/null
-playwright-cli -s=pdf resize 1800 1300 >/dev/null
+mise pw -s=pdf open --config="$tmp/cli.config.json" "http://127.0.0.1:$port/index.html" >/dev/null
+mise pw -s=pdf resize 1800 1300 >/dev/null
 for _ in $(seq 1 30); do
-  [ "$(playwright-cli -s=pdf eval '() => String(!!window.done)' 2>/dev/null | sed -n 2p)" = '"true"' ] && break
+  [ "$(mise pw -s=pdf eval '() => String(!!window.done)' 2>/dev/null | sed -n 2p)" = '"true"' ] && break
   sleep 1
 done
-err="$(playwright-cli -s=pdf eval '() => window.pdfError || ""' | sed -n 2p)"
+err="$(mise pw -s=pdf eval '() => window.pdfError || ""' | sed -n 2p)"
 [ "$err" = '""' ] || { echo "PDF の描画に失敗しました: $err" >&2; exit 1; }
-n="$(playwright-cli -s=pdf eval '() => String(window.numPages)' | sed -n 2p | tr -d '"')"
+n="$(mise pw -s=pdf eval '() => String(window.numPages)' | sed -n 2p | tr -d '"')"
 for i in $(seq 1 "$n"); do
-  playwright-cli -s=pdf screenshot "canvas >> nth=$((i-1))" --filename="$out-p$i.png" >/dev/null
+  mise pw -s=pdf screenshot "canvas >> nth=$((i-1))" --filename="$out-p$i.png" >/dev/null
   echo "page $i: $out-p$i.png"
 done
-playwright-cli -s=pdf eval '() => window.pdfText.map((t,i) => `--- page ${i+1} ---\n${t}`).join("\n")' | sed -n 2p | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()))' > "$out.txt"
+mise pw -s=pdf eval '() => window.pdfText.map((t,i) => `--- page ${i+1} ---\n${t}`).join("\n")' | sed -n 2p | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()))' > "$out.txt"
 echo "text: $out.txt"

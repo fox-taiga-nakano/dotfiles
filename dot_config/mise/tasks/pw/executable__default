@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="playwright-cli を git のルート (git 管理外ならカレント) で実行する (引数はそのまま渡す。例: mise pw -s=wt snapshot)"
+#MISE dir="{{cwd}}"
+#MISE quiet=true
+# サブディレクトリで直接実行すると、ルートの .playwright/cli.config.json が読まれず chrome を探して失敗し、
+# .playwright-cli/ (スナップショット・ダウンロード) もそのディレクトリに作られるため、ルートに移ってから実行する。
+# --filename などの相対パスはルートからのパスになるので、絶対パスで渡す。
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exec playwright-cli "$@"
