@@ -4,22 +4,26 @@
 
 [tasks.mtu]
 description = "WSL2 のネットワークインターフェースの MTU を 1250 に設定する"
-run = "sudo ip link set eth0 mtu 1250"
+# すでに設定済みなら sudo の認証を求めない
+run = '[ "$(cat /sys/class/net/eth0/mtu)" = 1250 ] || sudo ip link set eth0 mtu 1250'
 
 [tasks.'vpn:connect']
-description = "Windows の VPN (環境変数 VPN_NAME) に接続し、WSL2 の MTU を 1250 に設定する"
-shell = "bash -c"
-run = """
-set -euo pipefail
-: "${VPN_NAME:?VPN_NAME が未設定です (~/.config/mise/conf.d/local.toml の [env] に書く)}"
-rasdial.exe "$VPN_NAME"
-mise mtu
-"""
-
-[tasks.'vpn:disconnect']
-description = "Windows の VPN (環境変数 VPN_NAME) を切断する"
+description = "Windows の保存済み認証情報で VPN (環境変数 VPN_NAME) に接続し、WSL2 の MTU を 1250 に設定する"
 shell = "bash -c"
 run = '''
+set -euo pipefail
 : "${VPN_NAME:?VPN_NAME が未設定です (~/.config/mise/conf.d/local.toml の [env] に書く)}"
-rasdial.exe "$VPN_NAME" /disconnect
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+  -File "$(wslpath -w "$HOME/.config/mise/lib/vpn-connect.ps1")" -Name "$VPN_NAME"
+mise mtu
+'''
+
+[tasks.'vpn:disconnect']
+description = "Windows 標準 API で VPN (環境変数 VPN_NAME) を切断する"
+shell = "bash -c"
+run = '''
+set -euo pipefail
+: "${VPN_NAME:?VPN_NAME が未設定です (~/.config/mise/conf.d/local.toml の [env] に書く)}"
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+  -File "$(wslpath -w "$HOME/.config/mise/lib/vpn-disconnect.ps1")" -Name "$VPN_NAME"
 '''

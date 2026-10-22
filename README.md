@@ -47,6 +47,9 @@ chezmoi cd
 - [mise グローバルタスク](dot_config/mise/conf.d/): カテゴリ別のタスク。VPN 名など非公開の値は chezmoi 管理外の `~/.config/mise/conf.d/local.toml` の `[env]` に書く
 - [パッケージ一覧](.chezmoidata/packages.yaml): Homebrew でインストールするパッケージ
 
+WSL2 の `mise vpn:connect` は、Windows の VPN 設定に保存したユーザー名・パスワードを標準 RAS API で利用して接続し、WSL2 の MTU を 1250 に設定します。事前に Windows 側で認証情報を保存してください。パスワードを mise の設定に書く必要はありません。
+`mise vpn:disconnect` も標準 RAS API を利用し、指定した VPN の切断完了を確認して終了します。すでに切断済みの場合も正常終了します。
+
 ### 3. 差分を確認して適用
 
 既存の設定を置き換えるため、必要なファイルをバックアップしてから差分を確認します。
