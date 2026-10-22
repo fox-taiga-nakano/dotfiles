@@ -1,8 +1,10 @@
 {
   "autoSaveOnBlur": true,
   "breadcrumbs": true,
+  "checkUpdates": true,
   "cursorStyle": "block",
   "diffView": "split",
+  "diffWrap": false,
   "disabledExtensions": [],
   "extensionRegistry": "https://raw.githubusercontent.com/letstri/druk/main/extensions/",
   "extensionUpdates": true,
