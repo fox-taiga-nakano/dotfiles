@@ -6,7 +6,8 @@
 # worktree から実行してもメイン側を扱う (記録・エビデンスはメインに置く)。
 # 状態はディレクトリ名で表し、並び順は ISSUE_STATUSES の位置 (ls で完了に近いものが上に並ぶ)。
 
-ISSUE_STATUSES=(完了 検証済 検証NG 修正中 Issue更新済 再現済 未着手)
+# 並び順は位置の番号 (0 から)。対象外 (流れに乗せない Issue。手で進めた例外など) は 0 にして、ls で一番上にまとめる
+ISSUE_STATUSES=(対象外 完了 検証済 検証NG 修正中 Issue更新済 再現済 未着手)
 
 issue_die() { echo "$*" >&2; exit 1; }
 
@@ -21,7 +22,7 @@ issue_load() {
 issue_prefix() {
   local i
   for i in "${!ISSUE_STATUSES[@]}"; do
-    [ "${ISSUE_STATUSES[$i]}" = "$1" ] && { echo "$((i + 1))-$1"; return 0; }
+    [ "${ISSUE_STATUSES[$i]}" = "$1" ] && { echo "$i-$1"; return 0; }
   done
   echo "状態は次のいずれか: ${ISSUE_STATUSES[*]}" >&2; return 1
 }

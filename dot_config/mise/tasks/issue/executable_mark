@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-#MISE description="Issue の状態を変える (ディレクトリ名を <並び順>-<状態>_<番号> に変える)。状態: 未着手 再現済 Issue更新済 修正中 検証済 検証NG 完了"
+#MISE description="Issue の状態を変える (ディレクトリ名を <並び順>-<状態>_<番号> に変える)。状態: 未着手 再現済 Issue更新済 修正中 検証済 検証NG 完了 対象外"
 #MISE dir="{{cwd}}"
 #USAGE arg "<number>" help="GitHub の Issue 番号"
-#USAGE arg "<status>" help="未着手 / 再現済 / Issue更新済 / 修正中 / 検証済 / 検証NG / 完了"
+#USAGE arg "<status>" help="未着手 / 再現済 / Issue更新済 / 修正中 / 検証済 / 検証NG / 完了 / 対象外"
 set -euo pipefail
 source "$(dirname "$(realpath "$0")")/../../lib/issue.sh"
 issue_load
