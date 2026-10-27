@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="カレントの worktree の workspace の verify タブ (無ければ作成) で claude を起動する (メインのチェックアウトも作業ディレクトリに加える)"
+#MISE description="カレントの worktree の workspace の agent タブ (無ければ先頭のタブを agent にする。flow の作業役と同じタブ) で claude を起動する (メインのチェックアウトも作業ディレクトリに加える)"
 #MISE dir="{{cwd}}"
 #USAGE arg "<name>" help="herdr のエージェント名 (例: verify-123)"
 set -euo pipefail
@@ -8,10 +8,18 @@ wt_load
 wt_require_worktree
 name="$usage_name"
 ws="$(wt_workspace "$WT_PATH")"
-pane="$(wt_tab_pane "$ws" verify "$WT_PATH")"
+pane="$(wt_tab_pane "$ws" agent)"
+if [ -z "$pane" ]; then
+  # agent タブが無ければ先頭のタブ (wt:create で作られ post_create を実行したタブ) を agent にして使う。先頭が dev なら新しく作る
+  first="$(herdr tab list --workspace "$ws" | jq -c '.result.tabs[0] // empty')"
+  if [ -n "$first" ] && [ "$(jq -r '.label' <<<"$first")" != dev ]; then
+    herdr tab rename "$(jq -r '.tab_id' <<<"$first")" agent >/dev/null
+  fi
+  pane="$(wt_tab_pane "$ws" agent "$WT_PATH")"
+fi
 cur="$(herdr pane list --workspace "$ws" | jq -r --arg p "$pane" '.result.panes[] | select(.pane_id == $p) | .agent // empty')"
 if [ -n "$cur" ]; then
-  echo "verify タブ (pane $pane) ではすでに $cur が動いています。再利用するか、終了してから実行してください" >&2
+  echo "agent タブ (pane $pane) ではすでに $cur が動いています。再利用するか、終了してから実行してください" >&2
   herdr agent get "$pane" | jq -c '.result.agent | {pane_id, agent, agent_status}' >&2 || true
   exit 1
 fi
