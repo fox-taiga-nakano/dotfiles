@@ -1,19 +1,60 @@
 {
-  "sortToTop": [
-    "name",
-    "version",
-    "private",
-    "scripts",
-    "devDependencies",
-    "packageManager",
-    "engines",
-    "pnpm"
-  ],
-  "sortedSubItems": [
-    "scripts",
-    "devDependencies",
-    "dependencies",
-    "pnpm.overrides"
-  ]
+    "sortToTop": [
+        "name",
+        "displayName",
+        "description",
+        "keywords",
+        "version",
+        "license",
+        "author",
+        "homepage",
+        "type",
+        "types",
+        "typings",
+        "module",
+        "main",
+        "exports",
+        "files",
+        "bugs",
+        "bin",
+        "engines",
+        "man",
+        "private",
+        "directories",
+        "repository",
+        "scripts",
+        "config",
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "bundledDependencies",
+        "optionalDependencies",
+        "os",
+        "cpu",
+        "publishConfig"
+    ],
+    "required": [
+        "name",
+        "version"
+    ],
+    "warn": [
+        "description",
+        "keywords",
+        "homepage",
+        "bugs",
+        "license",
+        "author",
+        "main",
+        "repository",
+        "type"
+    ],
+    "sortedSubItems": [
+        "files",
+        "directories",
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "bundledDependencies",
+        "optionalDependencies"
+    ]
 }
-
