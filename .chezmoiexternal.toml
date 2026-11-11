@@ -27,3 +27,10 @@
     exact = true
     stripComponents = 1
     refreshPeriod = "168h"
+
+# Windows: Alt 空打ちで IME を切り替える alt-ime-ahk (mise win apply で展開)
+["Documents/AutoHotkey/alt-ime-ahk.exe"]
+    type = "archive-file"
+    url = "https://github.com/karakaram/alt-ime-ahk/releases/download/v0.4.6/alt-ime-ahk.zip"
+    path = "alt-ime-ahk.exe"
+    checksum.sha256 = "3838551e8b9fb65504e8e9af3d9b38b147e9b5af2a651f65b92ba727a95634b2"

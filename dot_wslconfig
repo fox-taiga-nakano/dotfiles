@@ -1,0 +1,23 @@
+[wsl2]
+
+# WSL 2 VM に割り当てる最大メモリ
+memory=16GB
+
+# WSL 2 VM に割り当てる論理プロセッサ数
+processors=4
+
+# スワップ領域
+swap=6GB
+
+# Windows から WSL 内の localhost へのポート転送
+localhostForwarding=true
+
+# デバッグコンソールを無効化
+debugConsole=false
+
+# 必要な場合のみ有効化
+# networkingMode=mirrored
+#
+
+maxCrashDumpCount=2
+
