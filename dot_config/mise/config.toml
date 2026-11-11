@@ -13,6 +13,7 @@ herdr = "latest"
 chezmoi = "latest"
 hunk = "latest"
 "npm:concurrently" = "latest"
+ffmpeg = "latest"
 
 [settings]
 idiomatic_version_file_enable_tools = ["node"]
