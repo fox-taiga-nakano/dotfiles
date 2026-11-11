@@ -10,3 +10,20 @@ README.md
 
 # エージェントの作業メモ (tasks/todo.md・tasks/lessons.md)。ホームに展開しない
 tasks
+
+# Windows 側のホーム (/mnt/c/Users/<user>) を展開先にしたとき (mise win ...) は許可リスト方式で
+# Windows の設定だけを対象にし、Linux 用のファイル・scripts・externals を展開しない
+{{- if hasPrefix "/mnt/c/" .chezmoi.destDir }}
+*
+.*
+.*/**
+!.wslconfig
+!AppData/**
+!Documents/**
+{{- else }}
+.wslconfig
+AppData
+AppData/**
+Documents
+Documents/**
+{{- end }}

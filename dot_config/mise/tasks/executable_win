@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Windows 側のホーム (%USERPROFILE%) を展開先にして chezmoi を実行する (例: mise win diff / apply / re-add)"
+#MISE dir="{{cwd}}"
+#MISE raw=true
+set -euo pipefail
+win_home="$(cd /mnt/c && cmd.exe /d /c 'echo %USERPROFILE%' | tr -d '\r')"
+exec chezmoi --destination "$(wslpath "$win_home")" "$@"
