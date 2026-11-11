@@ -18,10 +18,12 @@ tasks
 .*
 .*/**
 !.wslconfig
+!.chezmoiscripts/20-winget-install.sh
 !AppData/**
 !Documents/**
 {{- else }}
 .wslconfig
+.chezmoiscripts/20-winget-install.sh
 AppData
 AppData/**
 Documents

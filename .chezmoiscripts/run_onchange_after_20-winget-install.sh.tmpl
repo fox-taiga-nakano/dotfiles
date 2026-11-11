@@ -1,0 +1,33 @@
+{{- if hasPrefix "/mnt/c/" .chezmoi.destDir -}}
+#!/bin/bash
+# Install Windows apps listed in .chezmoidata/packages.yaml (packages.windows.winget)
+# with winget.exe from WSL. Runs only with `mise win apply` (Windows destination);
+# chezmoi re-runs it whenever the package list below changes.
+set -euo pipefail
+cd /mnt/c # winget.exe warns when started from a WSL (UNC) working directory
+
+if ! command -v winget.exe >/dev/null 2>&1; then
+  echo "winget-install: winget.exe not found; install App Installer from Microsoft Store" >&2
+  exit 1
+fi
+
+failed=()
+for id in \
+{{- range dig "windows" "winget" list .packages }}
+  {{ . | quote }} \
+{{- end }}
+; do
+  if winget.exe list --id "$id" --exact --source winget --disable-interactivity >/dev/null 2>&1; then
+    continue
+  fi
+  echo "winget-install: installing $id"
+  winget.exe install --id "$id" --exact --source winget --silent \
+    --accept-package-agreements --accept-source-agreements --disable-interactivity \
+    || failed+=("$id")
+done
+
+if [ "${#failed[@]}" -gt 0 ]; then
+  echo "winget-install: failed: ${failed[*]}" >&2
+  exit 1
+fi
+{{ end -}}
