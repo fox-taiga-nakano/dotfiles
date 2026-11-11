@@ -1,11 +1,12 @@
 # dotfiles
 
-WSL 上の開発環境を chezmoi で管理する dotfiles リポジトリです。シェル、Git、開発ツールの設定をまとめて導入・更新できます。
+WSL 上の開発環境を chezmoi で管理する dotfiles リポジトリです。シェル、Git、開発ツールの設定をまとめて導入・更新できます。Windows 側の設定とアプリも、WSL から同じリポジトリで管理します。
 
 - Zsh: Oh My Zsh、Powerlevel10k、入力補完・構文ハイライト
 - Git: delta による差分表示、lazygit の表示設定
 - 開発ツール: mise によるランタイム・CLI の管理、Herdr・hunk・druk の設定
 - Claude Code: ステータスライン、フック、出力スタイル
+- Windows: Windows Terminal、VS Code、AutoHotkey、`.wslconfig`、winget でインストールするアプリ
 
 ## 利用環境
 
@@ -21,6 +22,8 @@ WSL と Linuxbrew（`/home/linuxbrew/.linuxbrew`）を前提にした個人の�
 | Python 3  | Claude Code のステータスライン |
 
 Linuxbrew 自体をインストールするスクリプトは含まれていません。外部依存の取得にはネットワーク接続が必要です。
+
+Windows 側の設定を管理する場合は、Windows に winget（App Installer）が必要です。WSL の `/etc/wsl.conf` の設定も必要です（[Windows 側の設定](#windows-側の設定)を参照）。
 
 ## セットアップ
 
@@ -63,6 +66,15 @@ exec zsh
 
 `chezmoi apply` は設定の配置、Oh My Zsh・プラグイン・テーマの取得、Homebrew パッケージのインストールを行います。`mise install` は mise 設定に記載されたツールをインストールします。
 
+### 4. Windows 側に適用
+
+```sh
+mise win diff
+mise win apply
+```
+
+Windows 側の設定の配置と、winget パッケージのインストールを行います。詳しくは [Windows 側の設定](#windows-側の設定)を参照してください。
+
 ## 設定ファイル
 
 | ソース                        | 配置先                       | 内容                                          |
@@ -81,7 +93,9 @@ exec zsh
 | `dot_config/druk/`            | `~/.config/druk/`            | エディターの設定                              |
 | `dot_claude/`                 | `~/.claude/`                 | ステータスライン、フック、出力スタイル        |
 | `dot_fixpackrc`               | `~/.fixpackrc`               | package.json の整形設定                       |
-| `.chezmoidata/packages.yaml`  | （配置なし）                 | Homebrew でインストールするパッケージ         |
+| `.chezmoidata/packages.yaml`  | （配置なし）                 | Homebrew・winget でインストールするパッケージ |
+
+Windows 側に配置する設定は [Windows 側の設定](#windows-側の設定)にまとめています。
 
 chezmoi の命名規則に従い、`dot_` はドットファイル、`.tmpl` はテンプレート、`executable_` は実行可能ファイルを表します。
 
@@ -102,7 +116,7 @@ chezmoi の命名規則に従い、`dot_` はドットファイル、`.tmpl` は
 
 Homebrew でインストールするパッケージは [.chezmoidata/packages.yaml](.chezmoidata/packages.yaml) で管理しています。
 
-OS（`common`・`darwin`・`linux`・`windows`）、パッケージマネージャーの順に分けて定義します。OS のキーは chezmoi の `.chezmoi.os` の値に対応し、`common` はすべての OS で使います。
+OS（`common`・`darwin`・`linux`）、パッケージマネージャーの順に分けて定義します。OS のキーは chezmoi の `.chezmoi.os` の値に対応し、`common` はすべての OS で使います。同じファイルの `windows` キーは winget 用です（[winget パッケージ](#winget-パッケージ)を参照）。
 
 | キー                    | 内容                       |
 | ----------------------- | -------------------------- |
@@ -117,6 +131,59 @@ OS（`common`・`darwin`・`linux`・`windows`）、パッケージマネージ�
 - 一覧から削除しても、パッケージはアンインストールされません。必要に応じて `brew uninstall` を実行してください
 - インストール済みのパッケージは `--no-upgrade` によりアップグレードされません。更新は `brew upgrade` で行います
 - スクリプトだけを実行する場合は `chezmoi apply --include scripts` を使います
+
+## Windows 側の設定
+
+Windows のホームディレクトリ（`%USERPROFILE%`）に配置する設定も、WSL の chezmoi で管理します。Windows に chezmoi をインストールする必要はありません。
+
+`mise win` は、配置先を Windows のホームディレクトリにして chezmoi を実行するタスクです。chezmoi のサブコマンドをそのまま渡せます。
+
+```sh
+mise win diff      # 差分を確認
+mise win apply     # Windows 側に反映
+mise win status    # Windows 側の変更を確認
+mise win re-add    # Windows 側で変更した設定を取り込む
+```
+
+| ソース（配置先は `%USERPROFILE%` からの同じパス）                                  | 内容                                  |
+| ----------------------------------------------------------------------------------- | ------------------------------------- |
+| `dot_wslconfig`（配置先は `.wslconfig`）                                            | WSL2 の VM 設定                       |
+| `AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json` | Windows Terminal の設定・キーバインド |
+| `AppData/Roaming/Code/User/settings.json`                                           | VS Code の設定                        |
+| `Documents/AutoHotkey/ahk.ahk`                                                      | AutoHotkey のキーバインド             |
+| `Documents/AutoHotkey/alt-ime-ahk.exe`（`.chezmoiexternal.toml` で取得）            | Alt キーで IME を切り替える alt-ime-ahk |
+
+Windows Terminal と VS Code は、GUI で設定を変えると自身の設定ファイルを書き換えます。GUI で変更したあとは `mise win re-add` で取り込んでください。
+
+### 対象の切り替え
+
+[.chezmoiignore](.chezmoiignore) で、配置先（`.chezmoi.destDir`）が `/mnt/c/` 配下かどうかによって対象を切り替えています。
+
+- Windows 側: `.wslconfig`、`AppData/`、`Documents/`、winget のスクリプトだけを対象にする許可リスト方式です。Linux 用の設定、Homebrew のスクリプト、Oh My Zsh は配置しません
+- WSL 側（`chezmoi apply`）: Windows 用の設定と winget のスクリプトを除外します
+
+管理するファイルを増やす場合は `mise win add <Windows 側のパス>` を実行します。`AppData/`・`Documents/` 以外のパスは、`.chezmoiignore` の許可リストにも追加してください。
+
+### /mnt/c のパーミッション
+
+`/mnt/c` を `metadata` オプションなしでマウントすると、すべてのファイルが 777 になります。この場合、`mise win status` にパーミッションの差分が出続け、`mise win add` で取り込んだファイルに `executable_` が付きます。`/etc/wsl.conf` に次の設定を追加し、Windows 側で `wsl --shutdown` を実行して WSL を再起動してください。
+
+```ini
+[automount]
+options = "metadata,umask=22,fmask=111"
+```
+
+ファイルは 644、ディレクトリは 755 になります。
+
+### winget パッケージ
+
+winget でインストールするアプリは、[.chezmoidata/packages.yaml](.chezmoidata/packages.yaml) の `windows.winget` にパッケージ ID を並べて管理しています。ID は `winget.exe search <名前>` で調べられます。
+
+[run_onchange_after_20-winget-install.sh.tmpl](.chezmoiscripts/run_onchange_after_20-winget-install.sh.tmpl) が、WSL から `winget.exe` を実行し、インストールされていないパッケージだけをインストールします。一覧を変更したときだけ、次の `mise win apply` で実行されます。
+
+- パッケージを追加する: `packages.yaml` に追記して `mise win apply`
+- 一覧から削除しても、パッケージはアンインストールされません。必要に応じて `winget.exe uninstall` を実行してください
+- 依存ランタイム（VCRedist、.NET など）や Windows に付属するアプリは一覧に含めていません
 
 ## 設定の編集
 
@@ -179,3 +246,5 @@ Oh My Zsh 自身の自動更新は `zstyle ':omz:update' mode disabled` で無�
 `exact = true` により、上流で削除されたファイルは手元からも削除されます。独自のファイルは chezmoi のソースで管理してください。実行時に生成されるキャッシュ、ログ、コンパイル済み Zsh ファイル（`*.zwc`）は [.chezmoiignore](.chezmoiignore) で除外しています。
 
 バージョンを固定したい場合は、`.chezmoiexternal.toml` のアーカイブ URL をタグやコミットに変更してください。
+
+alt-ime-ahk は GitHub Release の v0.4.6 に固定し、SHA-256 のチェックサムで検証しています。更新する場合は URL と `checksum.sha256` を変更します。
