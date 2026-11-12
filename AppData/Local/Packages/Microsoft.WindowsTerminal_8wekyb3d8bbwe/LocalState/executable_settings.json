@@ -49,14 +49,6 @@
             "command":
             {
                 "action": "sendInput",
-                "input": "\u0002\u001b[D"
-            },
-            "id": "User.HerdrPreviousWorkspace"
-        },
-        {
-            "command":
-            {
-                "action": "sendInput",
                 "input": "\u00023"
             },
             "id": "User.HerdrTab3"
@@ -65,9 +57,9 @@
             "command":
             {
                 "action": "sendInput",
-                "input": "\u0002-"
+                "input": "\u0002\u001b[D"
             },
-            "id": "User.HerdrSplitHorizontal"
+            "id": "User.HerdrPreviousWorkspace"
         },
         {
             "command":
@@ -76,6 +68,14 @@
                 "input": "\u0002\u001b1"
             },
             "id": "User.HerdrWorkspace1"
+        },
+        {
+            "command":
+            {
+                "action": "sendInput",
+                "input": "\u0002-"
+            },
+            "id": "User.HerdrSplitHorizontal"
         },
         {
             "command":
@@ -459,7 +459,7 @@
                 "commandline": "C:\\Program Files\\Git\\bin\\bash.exe",
                 "guid": "{65c36162-9f48-40c3-8073-dc7307a5d0ff}",
                 "hidden": false,
-                "icon": "C:\\Program Files\\Git\\mingw64\\share\\git\\git-for-windows.ico",
+                "icon": "C:\\Program Files\\Git\\ucrt64\\share\\git\\git-for-windows.ico",
                 "name": "Git Bash",
                 "pathTranslationStyle": "msys2",
                 "startingDirectory": "%USERPROFILE%"
