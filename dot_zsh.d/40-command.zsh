@@ -34,3 +34,25 @@ tee() {
     s/\e[@-_]//g;
   ' | command tee "$@"
 }
+
+claude() {
+  local arg git_common_dir project_settings
+  for arg in "$@"; do
+    case "$arg" in
+      --settings|--settings=*|--cwd|--cwd=*)
+        command claude "$@"
+        return
+        ;;
+      --) break ;;
+    esac
+  done
+
+  if git_common_dir=$(command git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+    project_settings="${XDG_CONFIG_HOME:-$HOME/.config}/claude-projects${git_common_dir}.json"
+    if [[ -f "$project_settings" && -r "$project_settings" ]]; then
+      command claude --settings "$project_settings" "$@"
+      return
+    fi
+  fi
+  command claude "$@"
+}

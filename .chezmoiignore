@@ -28,4 +28,22 @@ AppData
 AppData/**
 Documents
 Documents/**
+
+# ~/.claude/.gitignore の許可リストに合わせる
+.claude/**
+!.claude
+!.claude/.claude
+!.claude/.claude/**
+!.claude/agents
+!.claude/agents/**
+!.claude/commands
+!.claude/commands/**
+!.claude/hooks
+!.claude/hooks/**
+!.claude/output-styles
+!.claude/output-styles/**
+!.claude/statuslines
+!.claude/statuslines/**
+!.claude/CLAUDE.md
+!.claude/settings.json
 {{- end }}

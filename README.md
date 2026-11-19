@@ -91,7 +91,7 @@ Windows 側の設定の配置と、winget パッケージのインストール�
 | `dot_config/herdr/`           | `~/.config/herdr/`           | ターミナルマルチプレクサーの設定              |
 | `dot_config/hunk/`            | `~/.config/hunk/`            | 差分ビューアーの設定                          |
 | `dot_config/druk/`            | `~/.config/druk/`            | エディターの設定                              |
-| `dot_claude/`                 | `~/.claude/`                 | ステータスライン、フック、出力スタイル        |
+| `dot_claude/`                 | `~/.claude/`                 | Claude Code の設定、エージェント、フックなど |
 | `dot_fixpackrc`               | `~/.fixpackrc`               | package.json の整形設定                       |
 | `.chezmoidata/packages.yaml`  | （配置なし）                 | Homebrew・winget でインストールするパッケージ |
 
@@ -110,7 +110,7 @@ chezmoi の命名規則に従い、`dot_` はドットファイル、`.tmpl` は
 
 ### Claude Code
 
-フックやステータスラインは、配置後に Claude Code の `~/.claude/settings.json` で登録してください。このファイルはリポジトリの管理対象に含まれていません。フックのルールは `dot_claude/hooks/rules/` で調整できます。
+`~/.claude/.gitignore` の許可リストに沿って Claude Code の設定を管理します。`settings.json` がフックとステータスラインを登録し、フックのルールは `dot_claude/hooks/rules/` で調整できます。
 
 ### Homebrew パッケージ
 

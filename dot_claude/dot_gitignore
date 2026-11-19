@@ -1,0 +1,15 @@
+*
+!*/
+
+# whitelist
+
+!/.claude/**
+!/agents/**
+!/commands/**
+!/hooks/**
+!/output-styles/**
+!/statuslines/**
+
+!/settings.json
+!/CLAUDE.md
+!/.gitignore
