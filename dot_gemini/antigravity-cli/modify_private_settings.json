@@ -1,0 +1,8 @@
+#!/bin/sh
+# Antigravity CLI の settings.json は agy 自身が書き換え、trustedWorkspaces などマシン固有の値も持つ。
+# ファイル全体は管理せず、statusLine だけを Claude Code と共用のスクリプトに設定する
+exec jq -n '(try input catch {}) // {} | .statusLine = {
+  "type": "command",
+  "command": "uv run $HOME/.claude/statuslines/usage.py",
+  "enabled": true
+}'

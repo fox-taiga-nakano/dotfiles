@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Claude Code ステータスライン
+"""Claude Code / Antigravity CLI 共用ステータスライン
+
+どちらも同じ形式の JSON を stdin に渡す(Antigravity は product="antigravity" と quota が付く)。
+実行中のツールの行だけ、stdin の値で CTX を表示する。
 
 1行目: モデル名・エフォート・Gitブランチ・差分・PR
 2行目以降: Claude / Codex / Antigravity / Copilot の使用量を列をそろえた表で表示する
@@ -10,7 +13,7 @@ from datetime import datetime, timezone
 
 HOME = os.path.expanduser('~')
 CACHE_FILE = f'{HOME}/.claude/.statusline_rate_cache.json'
-DEBUG_FILE = f'{HOME}/.claude/.statusline_debug.json'
+DEBUG_FILE = f'{HOME}/.claude/.statusline_debug{{}}.json'  # {} は実行中のツール名(Claude は空)
 CODEX_AUTH = f'{HOME}/.codex/auth.json'
 CODEX_SESSIONS = f'{HOME}/.codex/sessions'
 COPILOT_SESSIONS = f'{HOME}/.copilot/session-state'
@@ -158,13 +161,14 @@ def is_stale(path):
 # ---------------------------------------------------------------- 1行目: モデル・Git・PR
 
 
-def header(data):
-    model = data.get('model', {}).get('display_name', 'Claude')
+def header(data, host):
+    # 起動直後など、キーがあっても値が null で渡されることがあるので or {} で受ける
+    model = (data.get('model') or {}).get('display_name') or host
     effort = (data.get('effort') or {}).get('level')
     if effort:
         model = f'{model} {DIM}({effort}){R}'
 
-    cwd = data.get('cwd') or data.get('workspace', {}).get('current_dir', '')
+    cwd = data.get('cwd') or (data.get('workspace') or {}).get('current_dir', '')
     res = run(['git', '-C', cwd, 'branch', '--show-current']) if cwd else None
     branch = res.stdout.strip() if res else ''
     if not branch:
@@ -218,11 +222,18 @@ def pr_summary(cwd):
 # ---------------------------------------------------------------- Claude
 
 
-def claude_cells(data, cache):
-    cells = [fmt('CTX', data.get('context_window', {}).get('used_percentage') or 0)]
+def host_ctx(data):
+    # 実行中のツールが stdin で渡すコンテキスト使用率
+    return fmt('CTX', (data.get('context_window') or {}).get('used_percentage') or 0)
+
+
+def claude_cells(cache, data=None):
+    # data は Claude Code 上で動いているときだけ渡される。それ以外はキャッシュの前回値を出す
+    cells = [host_ctx(data) if data else na('CTX')]
+    data = data or {}
     # セッション開始直後は rate_limits が返らないため、前回値をキャッシュして補完する
     for key, name, ck in (('five_hour', '5H', 'five'), ('seven_day', '7D', 'week')):
-        w = data.get('rate_limits', {}).get(key, {})
+        w = (data.get('rate_limits') or {}).get(key) or {}
         pct, reset = w.get('used_percentage') or 0, w.get('resets_at')
         if reset:
             cache[f'{ck}_reset'], cache[f'{ck}_pct'] = reset, pct
@@ -405,24 +416,28 @@ def antigravity_refresh(cache):
         pass
 
 
-def antigravity_cells(cache):
-    if not os.path.exists(ANTIGRAVITY_AUTH):
-        return None
-    antigravity_refresh(cache)
-    try:
-        groups = load_json(ANTIGRAVITY_USAGE)['command']['data']['groups']
-    except Exception:
-        return None
-    # CTX は取得元が未調査のため「—」で表示する
-    cells = [na('CTX')]
-    # クォータはモデルグループ単位(Gemini / Claude・GPT)。列名は bucket id の先頭(gemini-weekly→GEM, 3p-weekly→3P)
-    for g in groups:
-        for b in g.get('buckets') or []:
-            label = b.get('id', '?').split('-')[0].upper()[:3]
-            pct = (1 - (b.get('remaining_fraction') or 0)) * 100
-            reset = b.get('reset_time')
-            reset = datetime.fromisoformat(reset.replace('Z', '+00:00')).timestamp() if reset else None
-            cells.append(fmt(label, *live_window(pct, reset)))
+def antigravity_cells(cache, data=None):
+    # data は Antigravity CLI 上で動いているときだけ渡され、/usage と同じ quota を含む。
+    # それ以外は agy -p /usage の結果ファイルを読む。どちらも bucket id → 残量 の辞書にそろえる
+    if data and data.get('quota'):
+        buckets = data['quota']
+    else:
+        if not os.path.exists(ANTIGRAVITY_AUTH):
+            return None
+        antigravity_refresh(cache)
+        try:
+            groups = load_json(ANTIGRAVITY_USAGE)['command']['data']['groups']
+            buckets = {b['id']: b for g in groups for b in g.get('buckets') or []}
+        except Exception:
+            return None
+    cells = [host_ctx(data) if data else na('CTX')]
+    # クォータはモデルグループ単位。id の降順で gemini-weekly→GEM, 3p-weekly→3P(Claude・GPT) の順に並べる
+    for bid, b in sorted(buckets.items(), reverse=True):
+        label = bid.split('-')[0].upper()[:3]
+        pct = (1 - (b.get('remaining_fraction') or 0)) * 100
+        reset = b.get('reset_time')
+        reset = datetime.fromisoformat(reset.replace('Z', '+00:00')).timestamp() if reset else None
+        cells.append(fmt(label, *live_window(pct, reset)))
     return cells
 
 # ---------------------------------------------------------------- 出力
@@ -444,26 +459,27 @@ def render_table(rows):
 
 
 def main():
-    # Claude Code がステータスライン描画時に JSON を stdin に渡す
+    # Claude Code / Antigravity CLI がステータスライン描画時に JSON を stdin に渡す
     raw = sys.stdin.read()
     data = json.loads(raw)
+    host = 'Antigravity' if data.get('product') == 'antigravity' else 'Claude'
     # デバッグ用: 受信データをファイルに記録（確認後に削除）
     try:
-        with open(DEBUG_FILE, 'w') as f:
+        with open(DEBUG_FILE.format('' if host == 'Claude' else f'_{host.lower()}'), 'w') as f:
             f.write(raw)
     except Exception:
         pass
 
     cache = load_json(CACHE_FILE, {})
-    rows = [('Claude', claude_cells(data, cache))]
-    for name, build in (('Codex', codex_cells), ('Antigravity', antigravity_cells),
-                        ('Copilot', copilot_cells)):
-        cells = build(cache)
+    rows = []
+    for name, build in (('Claude', claude_cells), ('Codex', codex_cells),
+                        ('Antigravity', antigravity_cells), ('Copilot', copilot_cells)):
+        cells = build(cache, data) if name == host else build(cache)
         if cells:
             rows.append((name, cells))
     save_cache(cache)
 
-    print(f' {header(data)} ')
+    print(f' {header(data, host)} ')
     print(render_table(rows), end='')
 
 
