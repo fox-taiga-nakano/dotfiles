@@ -374,8 +374,8 @@ if codex:
 copilot = copilot_premium()
 copilot_ctx_pct = copilot_ctx()
 if copilot or copilot_ctx_pct is not None:
-    cells = [fmt('CTX', copilot_ctx_pct) if copilot_ctx_pct is not None else na('CTX'),
-             na('5H'), na('7D')]
+    # Copilot には 5H/7D 枠がないため、月次クォータ(MO)を2列目に置く
+    cells = [fmt('CTX', copilot_ctx_pct) if copilot_ctx_pct is not None else na('CTX')]
     if copilot:
         cells.append(fmt('MO', *live_window(copilot['pct'], copilot.get('reset'))))
     rows.append(('Copilot', cells))
