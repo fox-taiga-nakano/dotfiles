@@ -55,7 +55,8 @@ def bar(pct, width=10):
     frac = int((filled - full) * 8)
     b = '█' * full
     if full < width:
-        b += BLOCKS[frac]
+        # 端数が0のときに空白が入るとバーが途切れて見えるので、未使用部分の░で埋める
+        b += BLOCKS[frac] if frac else '░'
         b += '░' * (width - full - 1)
     return b
 
@@ -89,10 +90,12 @@ def fmt(label, pct, resets_at=None):
                 else:
                     at_str = reset_time_local.strftime('%H:%M')
 
-                reset_str = f' \033[38;2;140;140;140m↺ {remain_str} ({at_str}){R}'
+                # 残り時間は最大幅(例: 23h59m)に揃え、行をまたいでも「(」の位置をそろえる
+                reset_str = f' \033[38;2;140;140;140m↺ {remain_str:<6} ({at_str}){R}'
         except Exception:
             pass
-    return f'{label} {gradient(pct)}{bar(pct)} {p}%{R}{reset_str}'
+    # %は最大3桁(100%)で右寄せし、桁数が違っても後続の↺の位置をそろえる
+    return f'{label} {gradient(pct)}{bar(pct)} {p:>3}%{R}{reset_str}'
 
 # モデル名とGitブランチ
 model = data.get('model', {}).get('display_name', 'Claude')
