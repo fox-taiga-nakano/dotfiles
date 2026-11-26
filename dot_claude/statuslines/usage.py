@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pattern 4: Fine-grained progress bar with true color gradient"""
 import json, sys, subprocess, os, re
+import urllib.request, urllib.error
 from datetime import datetime, timezone
 
 # Claude Code がステータスライン描画時に JSON を stdin に渡す
@@ -322,12 +323,53 @@ def copilot_ctx():
     return None
 
 
-COPILOT_TTL = 300  # Copilot はネットワーク呼び出しのため5分間キャッシュする
+NET_TTL = 300  # ネットワーク呼び出しの結果は5分間キャッシュする
+
+
+def codex_rate_limits():
+    # Codex CLI の ChatGPT ログイン情報で、/status と同じ使用量 API を叩く
+    auth_path = os.path.expanduser('~/.codex/auth.json')
+    cached = cache.get('codex')
+    try:
+        # 再ログインで auth.json が更新されたら、TTL内でもキャッシュ(認証エラー含む)を捨てる
+        fresh = (cached and now_ts - cached.get('fetched', 0) < NET_TTL
+                 and os.path.getmtime(auth_path) < cached['fetched'])
+    except OSError:
+        fresh = False
+    if fresh:
+        return cached
+    try:
+        with open(auth_path) as f:
+            tokens = json.load(f)['tokens']
+        req = urllib.request.Request(
+            'https://chatgpt.com/backend-api/wham/usage',
+            headers={'Authorization': f'Bearer {tokens["access_token"]}',
+                     'ChatGPT-Account-Id': tokens['account_id'],
+                     'User-Agent': 'codex-cli'})
+        with urllib.request.urlopen(req, timeout=3) as res:
+            rl = json.load(res).get('rate_limit') or {}
+        info = {'fetched': now_ts}
+        for key, name in (('primary_window', 'primary'), ('secondary_window', 'secondary')):
+            w = rl.get(key) or {}
+            info[name] = {'used_percent': w.get('used_percent'), 'resets_at': w.get('reset_at')}
+        cache['codex'] = info
+        save_cache(cache)
+        return info
+    except urllib.error.HTTPError as e:
+        if e.code not in (401, 403):
+            return cached
+        # トークン期限切れ等。古い値を出し続けると誤解を招くので認証エラーとして記録する
+        cache['codex'] = {'fetched': now_ts, 'auth_error': True}
+        save_cache(cache)
+        return cache['codex']
+    except Exception:
+        # トークン期限切れ等で取得できなければ、前回値(期限切れはlive_windowで0%扱い)を使う
+        return cached
 
 def copilot_premium():
     # gh の認証で Copilot の premium requests 月次クォータを取得する
     cached = cache.get('copilot')
-    if cached and now_ts - cached.get('fetched', 0) < COPILOT_TTL:
+    if cached and now_ts - cached.get('fetched', 0) < NET_TTL:
         return cached
     try:
         result = subprocess.run(
@@ -335,6 +377,11 @@ def copilot_premium():
             capture_output=True, text=True, timeout=3
         )
         if result.returncode != 0:
+            # 未ログイン(gh auth login を促す)やトークン無効(HTTP 401)は認証エラーとして記録する
+            if 'HTTP 401' in result.stderr or 'gh auth login' in result.stderr:
+                cache['copilot'] = {'fetched': now_ts, 'auth_error': True}
+                save_cache(cache)
+                return cache['copilot']
             return cached
         d = json.loads(result.stdout)
         snap = d.get('quota_snapshots', {}).get('premium_interactions') or {}
@@ -357,17 +404,30 @@ def na(label):
     return f'{label} {DIM}{"—":^10}{R}'
 
 
+ERR_COLOR = '\033[38;2;255;90;90m'
+
+def auth_err(label):
+    # 認証エラーで使用量が取れない枠は赤字で明示する（バーと同じ10桁幅で列を揃える）
+    return f'{label} {ERR_COLOR}{"auth error":^10}{R}'
+
+
 # プロバイダごとに [CTX, 5H, 7D, (MO)] のセルを組み立てる
 rows = [('Claude', parts[1:])]
 
+# レートリミットはネットワークから取得し、失敗時のみセッションログの値で代替する。
+# CTX はセッション固有の値なので常にログから読む
 codex = codex_status()
-if codex:
-    info = codex.get('info') or {}
+codex_rl = codex_rate_limits() or (codex or {}).get('rate_limits')
+if codex_rl:
+    info = (codex or {}).get('info') or {}
     last = info.get('last_token_usage') or {}
     window = info.get('model_context_window')
     cells = [fmt('CTX', last.get('total_tokens', 0) * 100 / window) if window else na('CTX')]
     for key, name in (('primary', '5H'), ('secondary', '7D')):
-        w = codex['rate_limits'].get(key) or {}
+        if codex_rl.get('auth_error'):
+            cells.append(auth_err(name))
+            continue
+        w = codex_rl.get(key) or {}
         cells.append(fmt(name, *live_window(w.get('used_percent') or 0, w.get('resets_at'))))
     rows.append(('Codex', cells))
 
@@ -376,7 +436,9 @@ copilot_ctx_pct = copilot_ctx()
 if copilot or copilot_ctx_pct is not None:
     # Copilot には 5H/7D 枠がないため、月次クォータ(MO)を2列目に置く
     cells = [fmt('CTX', copilot_ctx_pct) if copilot_ctx_pct is not None else na('CTX')]
-    if copilot:
+    if copilot and copilot.get('auth_error'):
+        cells.append(auth_err('MO'))
+    elif copilot:
         cells.append(fmt('MO', *live_window(copilot['pct'], copilot.get('reset'))))
     rows.append(('Copilot', cells))
 
