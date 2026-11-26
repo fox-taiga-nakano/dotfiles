@@ -2,9 +2,9 @@
 """Claude Code ステータスライン
 
 1行目: モデル名・エフォート・Gitブランチ・差分・PR
-2行目以降: Claude / Codex / Copilot の使用量を列をそろえた表で表示する
+2行目以降: Claude / Codex / Antigravity / Copilot の使用量を列をそろえた表で表示する
 """
-import json, sys, subprocess, os, re
+import json, sys, subprocess, os, re, shutil
 import urllib.request, urllib.error
 from datetime import datetime, timezone
 
@@ -14,6 +14,8 @@ DEBUG_FILE = f'{HOME}/.claude/.statusline_debug.json'
 CODEX_AUTH = f'{HOME}/.codex/auth.json'
 CODEX_SESSIONS = f'{HOME}/.codex/sessions'
 COPILOT_SESSIONS = f'{HOME}/.copilot/session-state'
+ANTIGRAVITY_AUTH = f'{HOME}/.gemini/antigravity-cli/antigravity-oauth-token'
+ANTIGRAVITY_USAGE = f'{HOME}/.claude/.statusline_antigravity_usage.json'
 
 NET_TTL = 300             # ネットワーク呼び出しの結果は5分間キャッシュする
 CTX_STALE_SEC = 30 * 60   # 最終更新からこれを過ぎたセッションは終了済みとみなし CTX を「—」にする
@@ -375,6 +377,53 @@ def copilot_cells(cache):
         cells.append(fmt('MO', *live_window(premium['pct'], premium.get('reset'))))
     return cells
 
+# ---------------------------------------------------------------- Antigravity
+
+
+def antigravity_refresh(cache):
+    # Antigravity CLI の `agy -p /usage` は /usage と同じ公式の残量を返す(クォータは消費しない)。
+    # 起動に数秒かかり描画を止めてしまうので、バックグラウンドで実行して結果をファイルに書かせる
+    try:
+        last = os.path.getmtime(ANTIGRAVITY_USAGE)
+    except OSError:
+        last = 0
+    if now_ts - max(last, cache.get('antigravity_started', 0)) < NET_TTL:
+        return
+    agy = shutil.which('agy')
+    if not agy:
+        return
+    # 失敗時も TTL 内は再実行しないよう、起動時刻を記録する
+    cache['antigravity_started'] = now_ts
+    try:
+        subprocess.Popen(
+            ['sh', '-c', '"$0" -p /usage --output-format json > "$1.tmp" && mv "$1.tmp" "$1"',
+             agy, ANTIGRAVITY_USAGE],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except Exception:
+        pass
+
+
+def antigravity_cells(cache):
+    if not os.path.exists(ANTIGRAVITY_AUTH):
+        return None
+    antigravity_refresh(cache)
+    try:
+        groups = load_json(ANTIGRAVITY_USAGE)['command']['data']['groups']
+    except Exception:
+        return None
+    # CTX は取得元が未調査のため「—」で表示する
+    cells = [na('CTX')]
+    # クォータはモデルグループ単位(Gemini / Claude・GPT)。列名は bucket id の先頭(gemini-weekly→GEM, 3p-weekly→3P)
+    for g in groups:
+        for b in g.get('buckets') or []:
+            label = b.get('id', '?').split('-')[0].upper()[:3]
+            pct = (1 - (b.get('remaining_fraction') or 0)) * 100
+            reset = b.get('reset_time')
+            reset = datetime.fromisoformat(reset.replace('Z', '+00:00')).timestamp() if reset else None
+            cells.append(fmt(label, *live_window(pct, reset)))
+    return cells
+
 # ---------------------------------------------------------------- 出力
 
 
@@ -406,7 +455,8 @@ def main():
 
     cache = load_json(CACHE_FILE, {})
     rows = [('Claude', claude_cells(data, cache))]
-    for name, build in (('Codex', codex_cells), ('Copilot', copilot_cells)):
+    for name, build in (('Codex', codex_cells), ('Antigravity', antigravity_cells),
+                        ('Copilot', copilot_cells)):
         cells = build(cache)
         if cells:
             rows.append((name, cells))
