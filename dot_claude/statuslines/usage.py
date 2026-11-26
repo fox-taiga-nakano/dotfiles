@@ -95,6 +95,10 @@ def fmt(label, pct, resets_at=None):
 
 # モデル名とGitブランチ
 model = data.get('model', {}).get('display_name', 'Claude')
+# 推論エフォート（low/medium/high など）をモデル名の横に薄く併記する
+effort = (data.get('effort') or {}).get('level')
+if effort:
+    model = f'{model} {DIM}({effort}){R}'
 
 cwd = data.get('cwd') or data.get('workspace', {}).get('current_dir', '')
 branch = ''
@@ -236,8 +240,163 @@ else:
         week_pct = cache.get('week_pct', 0)
 parts.append(fmt('7D', week_pct, week_reset))
 
-# 1行目: モデル名とブランチ、2行目: ctx/5h/7d を薄い│で区切って出力
-header = parts[0]
-metrics = parts[1:]
-print(f' {header} ')
-print(f'{DIM}│{R}'.join(f' {p} ' for p in metrics), end='')
+
+def live_window(pct, resets_at):
+    # リセット時刻を過ぎたウィンドウは使用量0%として扱う
+    if resets_at and resets_at > now_ts:
+        return pct, resets_at
+    return 0, None
+
+
+def tail_lines(path, size=512 * 1024):
+    # ログは大きくなり得るので末尾だけ読み、新しい行から順に返す
+    with open(path, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(f.tell() - size, 0))
+        return reversed(f.read().decode('utf-8', 'ignore').splitlines())
+
+
+def newest(paths, n=5):
+    # 最も新しく更新されたファイルから順に返す
+    try:
+        return sorted(paths, key=os.path.getmtime, reverse=True)[:n]
+    except Exception:
+        return []
+
+
+# 最終更新からこの秒数を過ぎたセッションは終了済みとみなし、CTX を「—」にする
+CTX_STALE_SEC = 30 * 60
+
+
+def is_stale(path):
+    return now_ts - os.path.getmtime(path) > CTX_STALE_SEC
+
+
+def codex_status():
+    # Codex CLI はセッションログ(jsonl)の token_count イベントに
+    # コンテキスト使用量(info)とアカウント単位の rate_limits を記録する
+    base = os.path.expanduser('~/.codex/sessions')
+    try:
+        day_dirs = [os.path.join(base, y, m, d)
+                    for y in sorted(os.listdir(base), reverse=True)[:2]
+                    for m in sorted(os.listdir(os.path.join(base, y)), reverse=True)[:2]
+                    for d in os.listdir(os.path.join(base, y, m))]
+        files = [os.path.join(d, f) for d in sorted(day_dirs, reverse=True)[:3]
+                 for f in os.listdir(d) if f.endswith('.jsonl')]
+    except Exception:
+        return None
+    for path in newest(files):
+        try:
+            for line in tail_lines(path):
+                if '"token_count"' not in line:
+                    continue
+                payload = json.loads(line).get('payload', {})
+                if (payload.get('rate_limits') or {}).get('primary'):
+                    # rate_limits はアカウント単位なので古くても使うが、CTX は古ければ捨てる
+                    if is_stale(path):
+                        payload['info'] = None
+                    return payload
+        except Exception:
+            continue
+    return None
+
+
+def copilot_ctx():
+    # Copilot CLI はセッションの events.jsonl に usage_record(入力トークン数と上限)を記録する
+    files = [os.path.join(d.path, 'events.jsonl')
+             for d in os.scandir(os.path.expanduser('~/.copilot/session-state'))
+             if d.is_dir()] if os.path.isdir(os.path.expanduser('~/.copilot/session-state')) else []
+    for path in newest([p for p in files if os.path.exists(p)]):
+        # 新しい順に見ているので、古いファイルに到達したら以降も全て古い
+        if is_stale(path):
+            return None
+        try:
+            for line in tail_lines(path):
+                if '"session.usage_record"' not in line:
+                    continue
+                usage = json.loads(line).get('data', {}).get('usage', {})
+                if usage.get('maxPromptTokens'):
+                    return usage['inputTokens'] * 100 / usage['maxPromptTokens']
+        except Exception:
+            continue
+    return None
+
+
+COPILOT_TTL = 300  # Copilot はネットワーク呼び出しのため5分間キャッシュする
+
+def copilot_premium():
+    # gh の認証で Copilot の premium requests 月次クォータを取得する
+    cached = cache.get('copilot')
+    if cached and now_ts - cached.get('fetched', 0) < COPILOT_TTL:
+        return cached
+    try:
+        result = subprocess.run(
+            ['gh', 'api', '/copilot_internal/user'],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode != 0:
+            return cached
+        d = json.loads(result.stdout)
+        snap = d.get('quota_snapshots', {}).get('premium_interactions') or {}
+        if snap.get('unlimited') or 'percent_remaining' not in snap:
+            return None
+        reset_at = None
+        if d.get('quota_reset_date_utc'):
+            reset_at = datetime.fromisoformat(
+                d['quota_reset_date_utc'].replace('Z', '+00:00')).timestamp()
+        info = {'pct': 100 - snap['percent_remaining'], 'reset': reset_at, 'fetched': now_ts}
+        cache['copilot'] = info
+        save_cache(cache)
+        return info
+    except Exception:
+        return cached
+
+
+def na(label):
+    # そのプロバイダに存在しない枠は薄い「—」で埋めて列を揃える
+    return f'{label} {DIM}{"—":^10}{R}'
+
+
+# プロバイダごとに [CTX, 5H, 7D, (MO)] のセルを組み立てる
+rows = [('Claude', parts[1:])]
+
+codex = codex_status()
+if codex:
+    info = codex.get('info') or {}
+    last = info.get('last_token_usage') or {}
+    window = info.get('model_context_window')
+    cells = [fmt('CTX', last.get('total_tokens', 0) * 100 / window) if window else na('CTX')]
+    for key, name in (('primary', '5H'), ('secondary', '7D')):
+        w = codex['rate_limits'].get(key) or {}
+        cells.append(fmt(name, *live_window(w.get('used_percent') or 0, w.get('resets_at'))))
+    rows.append(('Codex', cells))
+
+copilot = copilot_premium()
+copilot_ctx_pct = copilot_ctx()
+if copilot or copilot_ctx_pct is not None:
+    cells = [fmt('CTX', copilot_ctx_pct) if copilot_ctx_pct is not None else na('CTX'),
+             na('5H'), na('7D')]
+    if copilot:
+        cells.append(fmt('MO', *live_window(copilot['pct'], copilot.get('reset'))))
+    rows.append(('Copilot', cells))
+
+ANSI_RE = re.compile(r'\033\[[0-9;]*m')
+
+def vis_len(s):
+    return len(ANSI_RE.sub('', s))
+
+# 列ごとの最大表示幅に合わせて右側をスペースで埋め、全行の区切り位置を揃える
+widths = {}
+for _, cells in rows:
+    for i, c in enumerate(cells):
+        widths[i] = max(widths.get(i, 0), vis_len(c))
+label_w = max(len(name) for name, _ in rows)
+SEP = f'{DIM}│{R}'
+
+def render(name, cells):
+    padded = [c + ' ' * (widths[i] - vis_len(c)) for i, c in enumerate(cells)]
+    return f' {name:<{label_w}} ' + SEP.join(f' {c} ' for c in padded).rstrip()
+
+# 1行目: モデル名とブランチ、2行目以降: プロバイダごとの使用量を薄い│で区切って出力
+print(f' {parts[0]} ')
+print('\n'.join(render(name, cells) for name, cells in rows), end='')
