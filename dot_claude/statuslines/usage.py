@@ -20,6 +20,7 @@ ANTIGRAVITY_USAGE = f'{HOME}/.claude/.statusline_antigravity_usage.json'
 NET_TTL = 300             # ネットワーク呼び出しの結果は5分間キャッシュする
 CTX_STALE_SEC = 30 * 60   # 最終更新からこれを過ぎたセッションは終了済みとみなし CTX を「—」にする
 BAR_WIDTH = 10
+LABEL_WIDTH = 3           # 枠名(CTX, 5H, GEM など)の幅。異なる名前でもバーの開始位置をそろえる
 
 now_ts = datetime.now(timezone.utc).timestamp()
 
@@ -61,7 +62,7 @@ def bar(pct):
 
 
 def reset_label(resets_at):
-    # 「↺ 残り時間 (リセット時刻)」。当日中ならHH:MM、日をまたぐならMM/DD HH:MM
+    # 「残り時間 (リセット時刻)」。当日中ならHH:MM、日をまたぐならMM/DD HH:MM
     total = int(resets_at - now_ts)
     if total <= 0:
         return ''
@@ -70,23 +71,23 @@ def reset_label(resets_at):
     at = datetime.fromtimestamp(resets_at).astimezone()
     at_str = at.strftime('%H:%M' if at.date() == datetime.now().astimezone().date() else '%m/%d %H:%M')
     # 残り時間は最大幅(例: 23h59m)に揃え、行をまたいでも「(」の位置をそろえる
-    return f' {GRAY}↺ {remain:<6} ({at_str}){R}'
+    return f' {GRAY}{remain:<6} ({at_str}){R}'
 
 
 def fmt(label, pct, resets_at=None):
-    # %は最大3桁(100%)で右寄せし、桁数が違っても後続の↺の位置をそろえる
+    # %は最大3桁(100%)で右寄せし、桁数が違っても後続のリセット表示の位置をそろえる
     reset = reset_label(resets_at) if resets_at else ''
-    return f'{label} {gradient(pct)}{bar(pct)} {round(pct):>3}%{R}{reset}'
+    return f'{label:<{LABEL_WIDTH}} {gradient(pct)}{bar(pct)} {round(pct):>3}%{R}{reset}'
 
 
 def na(label):
     # そのプロバイダに存在しない枠は薄い「—」で埋めて列を揃える
-    return f'{label} {DIM}{"—":^{BAR_WIDTH}}{R}'
+    return f'{label:<{LABEL_WIDTH}} {DIM}{"—":^{BAR_WIDTH}}{R}'
 
 
 def auth_err(label):
     # 認証エラーで使用量が取れない枠は赤字で明示する
-    return f'{label} {ERR_COLOR}{"auth error":^{BAR_WIDTH}}{R}'
+    return f'{label:<{LABEL_WIDTH}} {ERR_COLOR}{"auth error":^{BAR_WIDTH}}{R}'
 
 
 def live_window(pct, resets_at):
