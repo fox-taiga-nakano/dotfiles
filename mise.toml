@@ -1,0 +1,20 @@
+[tools]
+ruff = "0.17.1"
+"npm:pyright" = "latest"
+
+[vars]
+# This mise file task is Python but has no .py extension.
+python_file_task = "dot_config/mise/tasks/md/executable_preview"
+
+[tasks."python:lint"]
+description = "Lint Python files in the repository"
+run = "ruff check . {{ vars.python_file_task }}"
+
+[tasks."python:typecheck"]
+description = "Type-check Python files in the repository"
+run = 'pyright --pythonpath "$(command -v python3)" . {{ vars.python_file_task }}'
+
+[tasks."python:check"]
+alias = "check"
+description = "Lint and type-check Python files in the repository"
+depends = ["python:lint", "python:typecheck"]

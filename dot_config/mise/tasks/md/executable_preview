@@ -172,9 +172,13 @@ def download_asset(url: str, asset_id: str, asset_dir: Path, max_mb: int) -> Ass
     # Asset IDs are strictly validated by ASSET_URL_RE and cannot escape asset_dir.
     for ext in sorted(SUPPORTED_EXTENSIONS):
         cached = asset_dir / (asset_id + ext)
-        if not cached.is_symlink() and cached.is_file() and cached.stat().st_size:
-            if detect_extension(cached) == ext:
-                return Asset(cached, "video" if ext in VIDEO_EXTENSIONS else "image")
+        if (
+            not cached.is_symlink()
+            and cached.is_file()
+            and cached.stat().st_size
+            and detect_extension(cached) == ext
+        ):
+            return Asset(cached, "video" if ext in VIDEO_EXTENSIONS else "image")
 
     if shutil.which("gh") is None:
         raise DownloadError("GitHub CLI (gh) が見つかりません。")
@@ -213,7 +217,10 @@ class Renderer:
         self.assets: dict[str, Asset | None] = {}
 
     def asset(self, url: str) -> Asset | None:
-        asset_id = ASSET_URL_RE.match(url)["id"].lower()
+        match = ASSET_URL_RE.match(url)
+        if match is None:
+            return None
+        asset_id = match["id"].lower()
         if asset_id not in self.assets:
             self.asset_dir.mkdir(mode=0o700, exist_ok=True)
             try:
@@ -301,7 +308,7 @@ def build(source: Path, max_mb: int) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").partition("\n")[0])
     parser.add_argument("markdown", type=Path)
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--max-mb", type=int, default=100)

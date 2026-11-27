@@ -7,9 +7,16 @@
 1行目: モデル名・エフォート・Gitブランチ・差分・PR
 2行目以降: Claude / Codex / Antigravity / Copilot の使用量を列をそろえた表で表示する
 """
-import json, sys, subprocess, os, re, shutil
-import urllib.request, urllib.error
-from datetime import datetime, timezone
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from contextlib import suppress
+from datetime import UTC, datetime
 
 HOME = os.path.expanduser('~')
 CACHE_FILE = f'{HOME}/.claude/.statusline_rate_cache.json'
@@ -25,7 +32,7 @@ CTX_STALE_SEC = 30 * 60   # 最終更新からこれを過ぎたセッション�
 BAR_WIDTH = 10
 LABEL_WIDTH = 3           # 枠名(CTX, 5H, GEM など)の幅。異なる名前でもバーの開始位置をそろえる
 
-now_ts = datetime.now(timezone.utc).timestamp()
+now_ts = datetime.now(UTC).timestamp()
 
 # ---------------------------------------------------------------- 色・描画
 
@@ -110,23 +117,20 @@ def load_json(path, default=None):
     try:
         with open(path) as f:
             return json.load(f)
-    except Exception:
+    except (OSError, ValueError):
         return default
 
 
 def save_cache(cache):
-    try:
-        with open(CACHE_FILE, 'w') as f:
-            json.dump(cache, f)
-    except Exception:
-        pass
+    with suppress(OSError, TypeError, ValueError), open(CACHE_FILE, 'w') as f:
+        json.dump(cache, f)
 
 
 def run(cmd, timeout=2, **kw):
     # 失敗・タイムアウト時は None を返す
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kw)
-    except Exception:
+        return subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout, **kw)
+    except (OSError, subprocess.SubprocessError, ValueError):
         return None
 
 
@@ -151,7 +155,7 @@ def tail_lines(path, size=512 * 1024):
 def newest(paths, n=5):
     try:
         return sorted(paths, key=os.path.getmtime, reverse=True)[:n]
-    except Exception:
+    except OSError:
         return []
 
 
@@ -215,7 +219,7 @@ def pr_summary(cwd):
         return ''
     try:
         pr = json.loads(res.stdout)
-    except Exception:
+    except json.JSONDecodeError:
         return ''
     return f'{PR_COLOR}#{pr["number"]} {pr.get("title", "")}{R}' if pr.get('number') else ''
 
@@ -256,10 +260,10 @@ def codex_log():
                     for d in os.listdir(os.path.join(base, y, m))]
         files = [os.path.join(d, f) for d in sorted(day_dirs, reverse=True)[:3]
                  for f in os.listdir(d) if f.endswith('.jsonl')]
-    except Exception:
+    except OSError:
         return None
     for path in newest(files):
-        try:
+        with suppress(OSError, ValueError, AttributeError, TypeError):
             for line in tail_lines(path):
                 if '"token_count"' not in line:
                     continue
@@ -269,8 +273,6 @@ def codex_log():
                     if is_stale(path):
                         payload['info'] = None
                     return payload
-        except Exception:
-            continue
     return None
 
 
@@ -281,7 +283,7 @@ def codex_rate_limits(cache):
     if is_fresh(cached, invalidated_by=CODEX_AUTH):
         return cached
     try:
-        tokens = load_json(CODEX_AUTH)['tokens']
+        tokens = (load_json(CODEX_AUTH) or {})['tokens']
         req = urllib.request.Request(
             'https://chatgpt.com/backend-api/wham/usage',
             headers={'Authorization': f'Bearer {tokens["access_token"]}',
@@ -289,7 +291,7 @@ def codex_rate_limits(cache):
                      'User-Agent': 'codex-cli'})
         with urllib.request.urlopen(req, timeout=3) as res:
             rl = json.load(res).get('rate_limit') or {}
-        info = {'fetched': now_ts}
+        info: dict[str, object] = {'fetched': now_ts}
         for key, name in (('primary_window', 'primary'), ('secondary_window', 'secondary')):
             w = rl.get(key) or {}
             info[name] = {'used_percent': w.get('used_percent'), 'resets_at': w.get('reset_at')}
@@ -298,7 +300,7 @@ def codex_rate_limits(cache):
             return cached
         # トークン期限切れ等。古い値を出し続けると誤解を招くので認証エラーとして記録する
         info = {'fetched': now_ts, 'auth_error': True}
-    except Exception:
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
         # 一時的な失敗は前回値(期限切れは live_window で0%扱い)を使う
         return cached
     cache['codex'] = info
@@ -320,7 +322,9 @@ def codex_cells(cache):
         if rl.get('auth_error'):
             cells.append(auth_err(name))
         else:
-            w = rl.get(key) or {}
+            w = rl.get(key)
+            if not isinstance(w, dict):
+                w = {}
             cells.append(fmt(name, *live_window(w.get('used_percent') or 0, w.get('resets_at'))))
     return cells
 
@@ -336,15 +340,13 @@ def copilot_ctx():
         # 新しい順に見ているので、古いファイルに到達したら以降も全て古い
         if is_stale(path):
             return None
-        try:
+        with suppress(OSError, ValueError, KeyError, AttributeError, TypeError):
             for line in tail_lines(path):
                 if '"session.usage_record"' not in line:
                     continue
                 usage = json.loads(line).get('data', {}).get('usage', {})
                 if usage.get('maxPromptTokens'):
                     return usage['inputTokens'] * 100 / usage['maxPromptTokens']
-        except Exception:
-            continue
     return None
 
 
@@ -369,8 +371,8 @@ def copilot_premium(cache):
             return None
         reset_at = None
         if d.get('quota_reset_date_utc'):
-            reset_at = datetime.fromisoformat(d['quota_reset_date_utc'].replace('Z', '+00:00')).timestamp()
-    except Exception:
+            reset_at = datetime.fromisoformat(d['quota_reset_date_utc']).timestamp()
+    except (OSError, ValueError, OverflowError, AttributeError, TypeError):
         return cached
     cache['copilot'] = {'pct': 100 - snap['percent_remaining'], 'reset': reset_at, 'fetched': now_ts}
     return cache['copilot']
@@ -406,14 +408,12 @@ def antigravity_refresh(cache):
         return
     # 失敗時も TTL 内は再実行しないよう、起動時刻を記録する
     cache['antigravity_started'] = now_ts
-    try:
+    with suppress(OSError, ValueError):
         subprocess.Popen(
             ['sh', '-c', '"$0" -p /usage --output-format json > "$1.tmp" && mv "$1.tmp" "$1"',
              agy, ANTIGRAVITY_USAGE],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
-    except Exception:
-        pass
 
 
 def antigravity_cells(cache, data=None):
@@ -426,9 +426,9 @@ def antigravity_cells(cache, data=None):
             return None
         antigravity_refresh(cache)
         try:
-            groups = load_json(ANTIGRAVITY_USAGE)['command']['data']['groups']
+            groups = (load_json(ANTIGRAVITY_USAGE) or {})['command']['data']['groups']
             buckets = {b['id']: b for g in groups for b in g.get('buckets') or []}
-        except Exception:
+        except (KeyError, AttributeError, TypeError):
             return None
     cells = [host_ctx(data) if data else na('CTX')]
     # クォータはモデルグループ単位。id の降順で gemini-weekly→GEM, 3p-weekly→3P(Claude・GPT) の順に並べる
@@ -436,8 +436,8 @@ def antigravity_cells(cache, data=None):
         label = bid.split('-')[0].upper()[:3]
         pct = (1 - (b.get('remaining_fraction') or 0)) * 100
         reset = b.get('reset_time')
-        reset = datetime.fromisoformat(reset.replace('Z', '+00:00')).timestamp() if reset else None
-        cells.append(fmt(label, *live_window(pct, reset)))
+        resets_at = datetime.fromisoformat(reset).timestamp() if reset else None
+        cells.append(fmt(label, *live_window(pct, resets_at)))
     return cells
 
 # ---------------------------------------------------------------- 出力
@@ -464,19 +464,18 @@ def main():
     data = json.loads(raw)
     host = 'Antigravity' if data.get('product') == 'antigravity' else 'Claude'
     # デバッグ用: 受信データをファイルに記録（確認後に削除）
-    try:
-        with open(DEBUG_FILE.format('' if host == 'Claude' else f'_{host.lower()}'), 'w') as f:
-            f.write(raw)
-    except Exception:
-        pass
+    suffix = '' if host == 'Claude' else f'_{host.lower()}'
+    with suppress(OSError, UnicodeError), open(DEBUG_FILE.format(suffix), 'w') as f:
+        f.write(raw)
 
     cache = load_json(CACHE_FILE, {})
-    rows = []
-    for name, build in (('Claude', claude_cells), ('Codex', codex_cells),
-                        ('Antigravity', antigravity_cells), ('Copilot', copilot_cells)):
-        cells = build(cache, data) if name == host else build(cache)
-        if cells:
-            rows.append((name, cells))
+    providers = (
+        ('Claude', claude_cells(cache, data if host == 'Claude' else None)),
+        ('Codex', codex_cells(cache)),
+        ('Antigravity', antigravity_cells(cache, data if host == 'Antigravity' else None)),
+        ('Copilot', copilot_cells(cache)),
+    )
+    rows = [(name, cells) for name, cells in providers if cells]
     save_cache(cache)
 
     print(f' {header(data, host)} ')
